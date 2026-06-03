@@ -8,7 +8,9 @@ on:
   workflow_dispatch:
 
 env:
-  ORT_VERSION: "1.18.1"
+  # ONNXRuntime mobile packages do not publish 1.18.1; 1.18.0 is the
+  # matching mobile release available from CocoaPods/Maven.
+  ORT_VERSION: "1.18.0"
   # Android NDK version (must match what MediaPipe's WORKSPACE expects)
   NDK_VERSION: "r25c"
   NDK_INSTALL_PATH: "/home/runner/android-ndk"
@@ -115,23 +117,16 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Download ONNXRuntime (Android)
         run: |
-          # ONNXRuntime provides Android AAR packages
+          set -euxo pipefail
+          # ONNXRuntime provides Android AAR packages through Maven Central.
           ORT_AAR="onnxruntime-android-${ORT_VERSION}.aar"
-          ORT_URL="https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/${ORT_VERSION}/${ORT_AAR}"
+          ORT_URL="https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/${ORT_VERSION}/${ORT_AAR}"
           echo "Downloading ONNXRuntime Android AAR"
           mkdir -p /home/runner/onnxruntime-android
-          curl -fsSL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${ORT_URL}" -o "/tmp/${ORT_AAR}"
+          curl -fsSL "${ORT_URL}" -o "/tmp/${ORT_AAR}"
           # AAR is a ZIP — extract the JNI libs for the target ABI
           unzip -q "/tmp/${ORT_AAR}" -d /home/runner/onnxruntime-android/aar
           echo "ORT_ANDROID_AAR=/tmp/${ORT_AAR}" >> $GITHUB_ENV
-
-          # Also download the C API headers for CMake cross-build
-          ORT_ARCHIVE="onnxruntime-linux-x64-${ORT_VERSION}.tgz"
-          wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_ARCHIVE}" -O "/tmp/${ORT_ARCHIVE}"
-          mkdir -p /home/runner/onnxruntime
-          tar -xzf "/tmp/${ORT_ARCHIVE}" -C /home/runner/onnxruntime --strip-components=1
-          # Use headers from x64 package (cross-platform headers are identical)
-          echo "ORT_SDK_HEADERS=/home/runner/onnxruntime/include" >> $GITHUB_ENV
 
       # -----------------------------------------------------------------------
       # 8. Cache opencv_lite (per ABI)
@@ -153,6 +148,7 @@ jobs:
       - name: Cross-compile opencv_lite for Android (${{ matrix.abi }})
         if: steps.cache-opencv-lite-android.outputs.cache-hit != 'true'
         run: |
+          set -euxo pipefail
           ABI="${{ matrix.abi }}"
           TOOLCHAIN="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake"
           INSTALL_DIR="/home/runner/opencv_lite_android/${ABI}"
@@ -168,6 +164,11 @@ jobs:
 
           # ONNXRuntime Android .so lives inside the AAR's jni/ folder
           ORT_ANDROID_LIB_DIR="/home/runner/onnxruntime-android/aar/jni/${ORT_LIB_SUBDIR}"
+          ORT_SDK="/home/runner/onnxruntime-android/sdk/${ABI}"
+          mkdir -p "${ORT_SDK}/include/onnxruntime" "${ORT_SDK}/lib"
+          cp -R /home/runner/onnxruntime-android/aar/headers/. "${ORT_SDK}/include/"
+          cp -R /home/runner/onnxruntime-android/aar/headers/. "${ORT_SDK}/include/onnxruntime/"
+          cp "${ORT_ANDROID_LIB_DIR}/libonnxruntime.so" "${ORT_SDK}/lib/"
 
           cmake \
             -S /tmp/opencv_lite \
@@ -180,8 +181,8 @@ jobs:
             -DANDROID_STL=c++_shared \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${INSTALL_DIR}" \
-            -DORT_SDK_HEADERS="${ORT_SDK_HEADERS}" \
-            -DORT_SDK_LIBS="${ORT_ANDROID_LIB_DIR}" \
+            -DORT_SDK="${ORT_SDK}" \
+            -DONNXRT_ROOT_DIR="${ORT_SDK}" \
             -DBUILD_SHARED_LIBS=ON \
             -DBUILD_TESTS=OFF \
             -DBUILD_EXAMPLES=OFF \

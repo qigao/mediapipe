@@ -85,7 +85,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:/opencv_lite_install
-          key: opencv-lite-windows-ort${{ env.ORT_VERSION }}-v1
+          key: opencv-lite-windows-ort${{ env.ORT_VERSION }}-v2
 
       # -----------------------------------------------------------------------
       # 7. Clone and build opencv_lite (Windows / MSVC)
@@ -99,18 +99,32 @@ jobs:
         if: steps.cache-opencv-lite-win.outputs.cache-hit != 'true'
         shell: powershell
         run: |
+          function Invoke-Checked {
+            param([Parameter(Mandatory=$true)][scriptblock]$Command)
+            & $Command
+            if ($LASTEXITCODE -ne 0) {
+              throw "Command failed with exit code $LASTEXITCODE"
+            }
+          }
+
           New-Item -ItemType Directory -Force -Path "C:\opencv_lite_src\build"
-          cmake -S C:\opencv_lite_src -B C:\opencv_lite_src\build `
-            -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_INSTALL_PREFIX="$env:OPENCV_INSTALL_PREFIX" `
-            -DORT_SDK="$env:ORT_SDK" `
-            -DBUILD_SHARED_LIBS=ON `
-            -DBUILD_TESTS=OFF `
-            -DBUILD_EXAMPLES=OFF
-          cmake --build C:\opencv_lite_src\build --config Release -j $env:NUMBER_OF_PROCESSORS
-          cmake --install C:\opencv_lite_src\build --config Release
+          Invoke-Checked {
+            cmake -S C:\opencv_lite_src -B C:\opencv_lite_src\build `
+              -G "Visual Studio 17 2022" -A x64 `
+              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
+              -DCMAKE_BUILD_TYPE=Release `
+              -DCMAKE_INSTALL_PREFIX="$env:OPENCV_INSTALL_PREFIX" `
+              -DORT_SDK="$env:ORT_SDK" `
+              -DBUILD_SHARED_LIBS=ON `
+              -DBUILD_TESTS=OFF `
+              -DBUILD_EXAMPLES=OFF
+          }
+          Invoke-Checked {
+            cmake --build C:\opencv_lite_src\build --config Release -j $env:NUMBER_OF_PROCESSORS
+          }
+          Invoke-Checked {
+            cmake --install C:\opencv_lite_src\build --config Release
+          }
 
       # -----------------------------------------------------------------------
       # 8. Patch WORKSPACE & opencv_windows.BUILD

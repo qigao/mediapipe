@@ -8,7 +8,9 @@ on:
   workflow_dispatch:
 
 env:
-  ORT_VERSION: "1.18.1"
+  # ONNXRuntime mobile packages do not publish 1.18.1; 1.18.0 is the
+  # matching mobile release available from CocoaPods/Maven.
+  ORT_VERSION: "1.18.0"
   # iOS deployment target
   IOS_DEPLOYMENT_TARGET: "15.0"
   OPENCV_IOS_INSTALL: "/Users/runner/opencv_lite_ios"
@@ -59,19 +61,33 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Download ONNXRuntime (iOS XCFramework)
         run: |
+          set -euxo pipefail
           ORT_URL="https://download.onnxruntime.ai/pod-archive-onnxruntime-c-${ORT_VERSION}.zip"
           echo "Downloading ONNXRuntime iOS XCFramework v${ORT_VERSION}"
-          wget -q "${ORT_URL}" -O /tmp/ort_ios.zip
+          curl -fL "${ORT_URL}" -o /tmp/ort_ios.zip
           mkdir -p /Users/runner/onnxruntime_ios
           unzip -q /tmp/ort_ios.zip -d /Users/runner/onnxruntime_ios
-          # Also get headers from macOS package for CMake
-          ORT_MAC="onnxruntime-osx-x86_64-${ORT_VERSION}.tgz"
-          wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_MAC}" \
-               -O /tmp/ort_mac.tgz
-          mkdir -p /Users/runner/onnxruntime_mac
-          tar -xzf /tmp/ort_mac.tgz -C /Users/runner/onnxruntime_mac --strip-components=1
-          echo "ORT_IOS_XCFRAMEWORK=/Users/runner/onnxruntime_ios" >> $GITHUB_ENV
-          echo "ORT_SDK_HEADERS=/Users/runner/onnxruntime_mac/include" >> $GITHUB_ENV
+
+          mkdir -p /Users/runner/onnxruntime_ios_sdk/device/include/onnxruntime
+          mkdir -p /Users/runner/onnxruntime_ios_sdk/device/lib
+          mkdir -p /Users/runner/onnxruntime_ios_sdk/simulator/include/onnxruntime
+          mkdir -p /Users/runner/onnxruntime_ios_sdk/simulator/lib
+
+          cp -R /Users/runner/onnxruntime_ios/Headers/. \
+            /Users/runner/onnxruntime_ios_sdk/device/include/
+          cp -R /Users/runner/onnxruntime_ios/Headers/. \
+            /Users/runner/onnxruntime_ios_sdk/device/include/onnxruntime/
+          cp -R /Users/runner/onnxruntime_ios/Headers/. \
+            /Users/runner/onnxruntime_ios_sdk/simulator/include/
+          cp -R /Users/runner/onnxruntime_ios/Headers/. \
+            /Users/runner/onnxruntime_ios_sdk/simulator/include/onnxruntime/
+          cp /Users/runner/onnxruntime_ios/onnxruntime.xcframework/ios-arm64/onnxruntime.framework/onnxruntime \
+            /Users/runner/onnxruntime_ios_sdk/device/lib/libonnxruntime.a
+          cp /Users/runner/onnxruntime_ios/onnxruntime.xcframework/ios-arm64_x86_64-simulator/onnxruntime.framework/onnxruntime \
+            /Users/runner/onnxruntime_ios_sdk/simulator/lib/libonnxruntime.a
+
+          echo "ORT_IOS_DEVICE_SDK=/Users/runner/onnxruntime_ios_sdk/device" >> $GITHUB_ENV
+          echo "ORT_IOS_SIMULATOR_SDK=/Users/runner/onnxruntime_ios_sdk/simulator" >> $GITHUB_ENV
 
       # -----------------------------------------------------------------------
       # 6. Cache opencv_lite (iOS)
@@ -93,6 +109,7 @@ jobs:
       - name: Build opencv_lite for iOS arm64 (device)
         if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
         run: |
+          set -euxo pipefail
           cmake \
             -S /tmp/opencv_lite \
             -B /tmp/opencv_lite_ios_arm64 \
@@ -103,8 +120,8 @@ jobs:
             -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/arm64" \
-            -DORT_SDK_HEADERS="${ORT_SDK_HEADERS}" \
-            -DORT_IOS_XCFRAMEWORK="${ORT_IOS_XCFRAMEWORK}" \
+            -DORT_SDK="${ORT_IOS_DEVICE_SDK}" \
+            -DONNXRT_ROOT_DIR="${ORT_IOS_DEVICE_SDK}" \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_TESTS=OFF \
             -DBUILD_EXAMPLES=OFF \
@@ -115,6 +132,7 @@ jobs:
       - name: Build opencv_lite for iOS Simulator (arm64 + x86_64)
         if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
         run: |
+          set -euxo pipefail
           for SIM_ARCH in arm64 x86_64; do
             cmake \
               -S /tmp/opencv_lite \
@@ -126,8 +144,8 @@ jobs:
               -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/sim_${SIM_ARCH}" \
-              -DORT_SDK_HEADERS="${ORT_SDK_HEADERS}" \
-              -DORT_IOS_XCFRAMEWORK="${ORT_IOS_XCFRAMEWORK}" \
+              -DORT_SDK="${ORT_IOS_SIMULATOR_SDK}" \
+              -DONNXRT_ROOT_DIR="${ORT_IOS_SIMULATOR_SDK}" \
               -DBUILD_SHARED_LIBS=OFF \
               -DBUILD_TESTS=OFF \
               -DBUILD_EXAMPLES=OFF \
