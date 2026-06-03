@@ -12,6 +12,7 @@ env:
   # matching mobile release available from CocoaPods/Maven.
   ORT_VERSION: "1.18.0"
   OPENCV_LITE_REF: "v4.13"
+  HERMETIC_PYTHON_VERSION: "3.12"
   # iOS deployment target
   IOS_DEPLOYMENT_TARGET: "15.0"
   OPENCV_IOS_INSTALL: "/Users/runner/opencv_lite_ios"
@@ -236,11 +237,15 @@ jobs:
           pattern = r'(new_local_repository\s*\(\s*name\s*=\s*"ios_opencv"[^)]*path\s*=\s*")[^"]*(")'
           replacement = r'\g<1>/Users/runner/opencv_lite_ios/xcframework_inputs\g<2>'
           new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+          new_content = new_content.replace(
+              'default_python_version = "system"',
+              'default_python_version = "3.12"',
+          )
           if new_content == content:
-              print("WARNING: ios_opencv path not found in WORKSPACE — check manually")
+              print("WARNING: ios_opencv path and hermetic Python defaults were not changed — check manually")
           else:
               ws.write_text(new_content)
-              print("Patched ios_opencv path")
+              print("Patched ios_opencv path and hermetic Python version")
           EOF
 
       - name: Generate opencv_ios_source.BUILD
@@ -294,6 +299,7 @@ jobs:
             --config=ios_arm64 \
             --apple_platform_type=ios \
             --ios_minimum_os="${IOS_DEPLOYMENT_TARGET}" \
+            --repo_env=HERMETIC_PYTHON_VERSION="${HERMETIC_PYTHON_VERSION}" \
             --define MEDIAPIPE_DISABLE_GPU=0 \
             //mediapipe/objc:mediapipe_framework_ios
 

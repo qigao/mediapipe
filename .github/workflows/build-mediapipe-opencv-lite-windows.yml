@@ -199,7 +199,7 @@ jobs:
         shell: powershell
         run: |
           $env:ORT_SDK = "C:\onnxruntime"
-          bazel build -c opt --define MEDIAPIPE_DISABLE_GPU=1 --define protobuf_allow_msvc=true //mediapipe/examples/desktop/hello_world:hello_world
+          bazel build -c opt --copt=/Zc:preprocessor --host_copt=/Zc:preprocessor --define MEDIAPIPE_DISABLE_GPU=1 --define protobuf_allow_msvc=true //mediapipe/examples/desktop/hello_world:hello_world
 
       # -----------------------------------------------------------------------
       # 10. Package: bundle opencv_lite DLLs + mediapipe into a distributable zip
