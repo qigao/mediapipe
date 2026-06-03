@@ -31,12 +31,8 @@ jobs:
           path: mediapipe
           submodules: recursive
 
-      # -----------------------------------------------------------------------
-      # 2. Select Xcode version
-      # -----------------------------------------------------------------------
-      - name: Select Xcode
+      - name: Show Xcode Version
         run: |
-          sudo xcode-select -switch /Applications/Xcode_15.0.app/Contents/Developer
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
 
