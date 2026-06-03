@@ -70,8 +70,8 @@ jobs:
         run: |
           curl -fsSL \
             https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
-            -o /usr/local/bin/bazel
-          chmod +x /usr/local/bin/bazel
+            | sudo tee /usr/local/bin/bazel > /dev/null
+          sudo chmod +x /usr/local/bin/bazel
           bazel version
 
       # -----------------------------------------------------------------------
