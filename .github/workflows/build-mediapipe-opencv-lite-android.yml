@@ -19,6 +19,7 @@ env:
   ANDROID_ABI: "arm64-v8a"
   # Android API level
   ANDROID_API_LEVEL: "24"
+  ANDROID_COMPILE_SDK_LEVEL: "34"
   OPENCV_ANDROID_INSTALL: "/home/runner/opencv_lite_android"
 
 jobs:
@@ -111,7 +112,7 @@ jobs:
           echo "ANDROID_HOME=/home/runner/android-sdk" >> $GITHUB_ENV
           echo "/home/runner/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           yes | /home/runner/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          /home/runner/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;34.0.0"
+          /home/runner/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-${ANDROID_COMPILE_SDK_LEVEL}" "build-tools;34.0.0"
 
       # -----------------------------------------------------------------------
       # 7. Download ONNXRuntime for Android (ABI-specific)
@@ -218,7 +219,8 @@ jobs:
           content = ws.read_text()
           ndk_home = os.environ.get("ANDROID_NDK_HOME", "/home/runner/android-ndk")
           sdk_home = os.environ.get("ANDROID_HOME", "/home/runner/android-sdk")
-          api_level = os.environ.get("ANDROID_API_LEVEL", "24")
+          min_api_level = os.environ.get("ANDROID_API_LEVEL", "24")
+          compile_sdk_level = os.environ.get("ANDROID_COMPILE_SDK_LEVEL", "34")
           abi = os.environ["ABI"]
           opencv_install = f"/home/runner/opencv_lite_android/{abi}"
 
@@ -258,8 +260,8 @@ jobs:
           )
           content += textwrap.dedent(f'''
 
-          android_sdk_repository(name = "androidsdk", api_level = {api_level}, path = "{sdk_home}")
-          android_ndk_repository(name = "androidndk", api_level = {api_level}, path = "{ndk_home}")
+          android_sdk_repository(name = "androidsdk", api_level = {compile_sdk_level}, path = "{sdk_home}")
+          android_ndk_repository(name = "androidndk", api_level = {min_api_level}, path = "{ndk_home}")
           bind(name = "android/crosstool", actual = "@androidndk//:toolchain")
           register_toolchains("@androidsdk//:all", "@androidndk//:all")
           ''')

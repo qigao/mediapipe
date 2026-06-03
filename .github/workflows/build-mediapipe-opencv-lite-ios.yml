@@ -119,6 +119,9 @@ jobs:
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneOS_Xcode.cmake \
             -DIOS_ARCH=arm64 \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_XCODE_ATTRIBUTE_ARCHS=arm64 \
+            -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
             -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
             -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
@@ -138,7 +141,7 @@ jobs:
             -DBUILD_opencv_java=OFF \
             -DBUILD_FAT_JAVA_LIB=OFF \
             -DBUILD_opencv_highgui=OFF
-          cmake --build /tmp/opencv_lite_ios_arm64 --config Release --parallel $(sysctl -n hw.logicalcpu) -- CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          cmake --build /tmp/opencv_lite_ios_arm64 --config Release --parallel $(sysctl -n hw.logicalcpu) -- ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
           cmake --install /tmp/opencv_lite_ios_arm64 --config Release
 
       - name: Build opencv_lite for iOS Simulator (arm64 + x86_64)
@@ -154,6 +157,9 @@ jobs:
               -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
               -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneSimulator_Xcode.cmake \
               -DIOS_ARCH="${SIM_ARCH}" \
+              -DCMAKE_OSX_ARCHITECTURES="${SIM_ARCH}" \
+              -DCMAKE_XCODE_ATTRIBUTE_ARCHS="${SIM_ARCH}" \
+              -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
               -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
               -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
               -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
@@ -173,7 +179,7 @@ jobs:
               -DBUILD_opencv_java=OFF \
               -DBUILD_FAT_JAVA_LIB=OFF \
               -DBUILD_opencv_highgui=OFF
-            cmake --build "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release --parallel $(sysctl -n hw.logicalcpu) -- CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+            cmake --build "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release --parallel $(sysctl -n hw.logicalcpu) -- ARCHS="${SIM_ARCH}" ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
             cmake --install "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release
           done
 

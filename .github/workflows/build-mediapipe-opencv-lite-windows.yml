@@ -117,7 +117,7 @@ jobs:
               -DCMAKE_INSTALL_PREFIX="$env:OPENCV_INSTALL_PREFIX" `
               -DORT_SDK="$env:ORT_SDK" `
               -DBUILD_SHARED_LIBS=ON `
-              -DBUILD_LIST=core,imgproc,dnn,video,highgui `
+              "-DBUILD_LIST=core,imgproc,dnn,video,highgui" `
               -DBUILD_TESTS=OFF `
               -DBUILD_EXAMPLES=OFF `
               -DBUILD_JAVA=OFF `
