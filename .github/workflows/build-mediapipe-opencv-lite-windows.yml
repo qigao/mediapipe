@@ -209,6 +209,83 @@ jobs:
           else:
               raise RuntimeError("Expected kGpuService definition not found")
 
+      - name: Fetch Bazel external repositories
+        working-directory: mediapipe
+        shell: powershell
+        run: |
+          bazel fetch --define protobuf_allow_msvc=true //mediapipe/examples/desktop/hello_world:hello_world
+
+      - name: Patch protobuf MSVC recursive variant
+        working-directory: mediapipe
+        shell: python
+        run: |
+          import pathlib
+          import subprocess
+
+          output_base = pathlib.Path(subprocess.check_output(["bazel", "info", "output_base"], text=True).strip())
+          candidates = sorted(output_base.glob("external/protobuf*"))
+          root = next(
+              (p for p in candidates if (p / "src/google/protobuf/json/internal/untyped_message.h").exists()),
+              None,
+          )
+          if root is None:
+              raise RuntimeError(f"Could not find fetched protobuf repository under {output_base / 'external'}")
+
+          header = root / "src/google/protobuf/json/internal/untyped_message.h"
+          source = root / "src/google/protobuf/json/internal/untyped_message.cc"
+
+          def replace_once(path, old, new):
+              content = path.read_text()
+              if new in content:
+                  return False
+              if old not in content:
+                  raise RuntimeError(f"Expected text not found in {path}: {old}")
+              path.write_text(content.replace(old, new, 1))
+              return True
+
+          changed = False
+          changed |= replace_once(
+              header,
+              "    return std::visit(SizeVisitor{}, it->second);",
+              "    return std::visit(SizeVisitor{}, *it->second);",
+          )
+          changed |= replace_once(
+              header,
+              "    if (auto* val = std::get_if<T>(&it->second)) {",
+              "    if (auto* val = std::get_if<T>(it->second.get())) {",
+          )
+          changed |= replace_once(
+              header,
+              "    } else if (auto* vec = std::get_if<std::vector<T>>(&it->second)) {",
+              "    } else if (auto* vec = std::get_if<std::vector<T>>(it->second.get())) {",
+          )
+          changed |= replace_once(
+              header,
+              "  absl::flat_hash_map<int32_t, Value> fields_;",
+              "  // This mirrors protobuf v32.1 and avoids MSVC eagerly checking\n"
+              "  // std::variant destructibility while UntypedMessage is incomplete.\n"
+              "  absl::flat_hash_map<int32_t, std::unique_ptr<Value>> fields_;",
+          )
+          changed |= replace_once(
+              source,
+              "  auto emplace_result = fields_.try_emplace(number, std::forward<T>(value));\n"
+              "  if (emplace_result.second) {\n"
+              "    return absl::OkStatus();\n"
+              "  }",
+              "  auto emplace_result = fields_.try_emplace(number);\n"
+              "  if (emplace_result.second) {\n"
+              "    emplace_result.first->second =\n"
+              "        std::make_unique<Value>(std::forward<T>(value));\n"
+              "    return absl::OkStatus();\n"
+              "  }",
+          )
+          changed |= replace_once(
+              source,
+              "  Value& slot = emplace_result.first->second;",
+              "  Value& slot = *emplace_result.first->second;",
+          )
+          print(f"{'Patched' if changed else 'Already patched'} protobuf at {root}")
+
       # -----------------------------------------------------------------------
       # 9. Build MediaPipe hello_world (Windows desktop)
       # -----------------------------------------------------------------------
