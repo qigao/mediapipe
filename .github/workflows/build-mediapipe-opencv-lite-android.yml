@@ -186,6 +186,9 @@ jobs:
             -DBUILD_SHARED_LIBS=ON \
             -DBUILD_TESTS=OFF \
             -DBUILD_EXAMPLES=OFF \
+            -DBUILD_ANDROID_PROJECTS=OFF \
+            -DBUILD_ANDROID_EXAMPLES=OFF \
+            -DINSTALL_ANDROID_EXAMPLES=OFF \
             -DBUILD_opencv_highgui=OFF
 
           ninja -C /tmp/opencv_lite_build_${ABI} -j$(nproc)

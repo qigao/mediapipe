@@ -113,12 +113,12 @@ jobs:
           cmake \
             -S /tmp/opencv_lite \
             -B /tmp/opencv_lite_ios_arm64 \
-            -G Ninja \
+            -G Xcode \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneOS_Xcode.cmake \
             -DIOS_ARCH=arm64 \
             -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
-            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CONFIGURATION_TYPES=Release \
             -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/arm64" \
             -DORT_SDK="${ORT_IOS_DEVICE_SDK}" \
             -DONNXRT_ROOT_DIR="${ORT_IOS_DEVICE_SDK}" \
@@ -126,8 +126,8 @@ jobs:
             -DBUILD_TESTS=OFF \
             -DBUILD_EXAMPLES=OFF \
             -DBUILD_opencv_highgui=OFF
-          ninja -C /tmp/opencv_lite_ios_arm64 -j$(sysctl -n hw.logicalcpu)
-          ninja -C /tmp/opencv_lite_ios_arm64 install
+          cmake --build /tmp/opencv_lite_ios_arm64 --config Release --parallel $(sysctl -n hw.logicalcpu)
+          cmake --install /tmp/opencv_lite_ios_arm64 --config Release
 
       - name: Build opencv_lite for iOS Simulator (arm64 + x86_64)
         if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
@@ -137,12 +137,12 @@ jobs:
             cmake \
               -S /tmp/opencv_lite \
               -B "/tmp/opencv_lite_sim_${SIM_ARCH}" \
-              -G Ninja \
+              -G Xcode \
               -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
               -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneSimulator_Xcode.cmake \
               -DIOS_ARCH="${SIM_ARCH}" \
               -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
-              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CONFIGURATION_TYPES=Release \
               -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/sim_${SIM_ARCH}" \
               -DORT_SDK="${ORT_IOS_SIMULATOR_SDK}" \
               -DONNXRT_ROOT_DIR="${ORT_IOS_SIMULATOR_SDK}" \
@@ -150,8 +150,8 @@ jobs:
               -DBUILD_TESTS=OFF \
               -DBUILD_EXAMPLES=OFF \
               -DBUILD_opencv_highgui=OFF
-            ninja -C "/tmp/opencv_lite_sim_${SIM_ARCH}" -j$(sysctl -n hw.logicalcpu)
-            ninja -C "/tmp/opencv_lite_sim_${SIM_ARCH}" install
+            cmake --build "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release --parallel $(sysctl -n hw.logicalcpu)
+            cmake --install "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release
           done
 
       - name: Create fat simulator slice (lipo) and XCFramework
