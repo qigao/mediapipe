@@ -16,7 +16,7 @@ env:
 jobs:
   build-ios:
     name: Build (iOS)
-    runs-on: macos-13
+    runs-on: macos-latest
     timeout-minutes: 180
 
     steps:

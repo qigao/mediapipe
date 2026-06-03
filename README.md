@@ -218,7 +218,7 @@ GLOG_logtostderr=1 bazel-bin/mediapipe/examples/desktop/hello_world/hello_world
 
 | Step | Linux | Windows | Android | iOS |
 |------|-------|---------|---------|-----|
-| Runner | ubuntu-22.04 | windows-2022 | ubuntu-22.04 | macos-13 |
+| Runner | ubuntu-22.04 | windows-2022 | ubuntu-22.04 | macos-latest |
 | Compiler | GCC | MSVC (VS 2022) | NDK Clang | Xcode Clang |
 | opencv_lite build | CMake native | CMake + MSVC | CMake + NDK cross-compile | CMake + Xcode toolchain |
 | MediaPipe build | `bazel build` | `bazel build` | `bazel build --config=android_arm64` | `bazel build --config=ios_arm64` |
@@ -264,8 +264,8 @@ opencv_lite intentionally omits modules like `calib3d`, `features2d`, and `imgco
 ### Android NDK version mismatch
 MediaPipe's `WORKSPACE` pins a specific NDK version via `android_ndk_repository`. If the workflow NDK version doesn't match, update `NDK_VERSION` in the workflow env or change the pin in `WORKSPACE`.
 
-### iOS simulator build fails on Apple Silicon
-The simulator fat binary lipo step merges `arm64` + `x86_64` slices. On Apple Silicon Mac runners, the `x86_64` simulator slice may require Rosetta. The `macos-13` runner (Intel) avoids this issue.
+### iOS simulator slice architecture issues
+The simulator fat binary lipo step merges `arm64` + `x86_64` slices. When integrating into Xcode on Apple Silicon, make sure your project settings correctly map architectures for simulators (e.g. using the bundled XCFramework).
 
 ---
 

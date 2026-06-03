@@ -97,19 +97,18 @@ jobs:
 
       - name: Build opencv_lite (MSVC)
         if: steps.cache-opencv-lite-win.outputs.cache-hit != 'true'
-        shell: cmd
+        shell: powershell
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          mkdir C:\opencv_lite_src\build
-          cmake -S C:\opencv_lite_src -B C:\opencv_lite_src\build ^
-            -G "Ninja" ^
-            -DCMAKE_BUILD_TYPE=Release ^
-            -DCMAKE_INSTALL_PREFIX="%OPENCV_INSTALL_PREFIX%" ^
-            -DORT_SDK="%ORT_SDK%" ^
-            -DBUILD_SHARED_LIBS=ON ^
-            -DBUILD_TESTS=OFF ^
+          New-Item -ItemType Directory -Force -Path "C:\opencv_lite_src\build"
+          cmake -S C:\opencv_lite_src -B C:\opencv_lite_src\build `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="$env:OPENCV_INSTALL_PREFIX" `
+            -DORT_SDK="$env:ORT_SDK" `
+            -DBUILD_SHARED_LIBS=ON `
+            -DBUILD_TESTS=OFF `
             -DBUILD_EXAMPLES=OFF
-          cmake --build C:\opencv_lite_src\build --config Release -j %NUMBER_OF_PROCESSORS%
+          cmake --build C:\opencv_lite_src\build --config Release -j $env:NUMBER_OF_PROCESSORS
           cmake --install C:\opencv_lite_src\build --config Release
 
       # -----------------------------------------------------------------------
@@ -173,13 +172,10 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Build MediaPipe (Windows)
         working-directory: mediapipe
-        shell: cmd
+        shell: powershell
         run: |
-          set ORT_SDK=C:\onnxruntime
-          bazel build ^
-            -c opt ^
-            --define MEDIAPIPE_DISABLE_GPU=1 ^
-            //mediapipe/examples/desktop/hello_world:hello_world
+          $env:ORT_SDK = "C:\onnxruntime"
+          bazel build -c opt --define MEDIAPIPE_DISABLE_GPU=1 //mediapipe/examples/desktop/hello_world:hello_world
 
       # -----------------------------------------------------------------------
       # 10. Package: bundle opencv_lite DLLs + mediapipe into a distributable zip
