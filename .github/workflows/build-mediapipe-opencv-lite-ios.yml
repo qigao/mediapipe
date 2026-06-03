@@ -59,8 +59,7 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Download ONNXRuntime (iOS XCFramework)
         run: |
-          ORT_PKG="onnxruntime-ios-xcframework-${ORT_VERSION}"
-          ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-ios-xcframework-${ORT_VERSION}.zip"
+          ORT_URL="https://download.onnxruntime.ai/pod-archive-onnxruntime-c-${ORT_VERSION}.zip"
           echo "Downloading ONNXRuntime iOS XCFramework v${ORT_VERSION}"
           wget -q "${ORT_URL}" -O /tmp/ort_ios.zip
           mkdir -p /Users/runner/onnxruntime_ios
@@ -98,6 +97,7 @@ jobs:
             -S /tmp/opencv_lite \
             -B /tmp/opencv_lite_ios_arm64 \
             -G Ninja \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneOS_Xcode.cmake \
             -DIOS_ARCH=arm64 \
             -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
@@ -120,6 +120,7 @@ jobs:
               -S /tmp/opencv_lite \
               -B "/tmp/opencv_lite_sim_${SIM_ARCH}" \
               -G Ninja \
+              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
               -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneSimulator_Xcode.cmake \
               -DIOS_ARCH="${SIM_ARCH}" \
               -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \

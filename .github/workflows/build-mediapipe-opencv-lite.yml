@@ -127,6 +127,7 @@ jobs:
 
           cmake .. \
             -G Ninja \
+            -D CMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -D CMAKE_BUILD_TYPE=Release \
             -D CMAKE_INSTALL_PREFIX="${OPENCV_INSTALL_PREFIX}" \
             -D ORT_SDK="${ORT_SDK}" \

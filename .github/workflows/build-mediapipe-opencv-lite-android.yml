@@ -120,7 +120,7 @@ jobs:
           ORT_URL="https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/${ORT_VERSION}/${ORT_AAR}"
           echo "Downloading ONNXRuntime Android AAR"
           mkdir -p /home/runner/onnxruntime-android
-          wget -q "${ORT_URL}" -O "/tmp/${ORT_AAR}"
+          curl -fsSL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${ORT_URL}" -o "/tmp/${ORT_AAR}"
           # AAR is a ZIP — extract the JNI libs for the target ABI
           unzip -q "/tmp/${ORT_AAR}" -d /home/runner/onnxruntime-android/aar
           echo "ORT_ANDROID_AAR=/tmp/${ORT_AAR}" >> $GITHUB_ENV
@@ -173,6 +173,7 @@ jobs:
             -S /tmp/opencv_lite \
             -B /tmp/opencv_lite_build_${ABI} \
             -G Ninja \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}" \
             -DANDROID_ABI="${ABI}" \
             -DANDROID_PLATFORM="android-${ANDROID_API_LEVEL}" \
