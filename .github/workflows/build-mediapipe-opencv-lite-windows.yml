@@ -9,6 +9,7 @@ on:
 
 env:
   ORT_VERSION: "1.18.1"
+  OPENCV_LITE_REF: "v4.13"
   OPENCV_INSTALL_PREFIX: "C:/opencv_lite_install"
 
 jobs:
@@ -85,14 +86,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:/opencv_lite_install
-          key: opencv-lite-windows-ort${{ env.ORT_VERSION }}-v2
+          key: opencv-lite-windows-${{ env.OPENCV_LITE_REF }}-ort${{ env.ORT_VERSION }}-v1
 
       # -----------------------------------------------------------------------
       # 7. Clone and build opencv_lite (Windows / MSVC)
       # -----------------------------------------------------------------------
       - name: Clone opencv_lite
         if: steps.cache-opencv-lite-win.outputs.cache-hit != 'true'
-        run: git clone --depth 1 https://github.com/zihaomu/opencv_lite.git C:\opencv_lite_src
+        run: git clone --depth 1 --branch %OPENCV_LITE_REF% https://github.com/zihaomu/opencv_lite.git C:\opencv_lite_src
         shell: cmd
 
       - name: Build opencv_lite (MSVC)

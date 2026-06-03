@@ -11,8 +11,9 @@ env:
   # ONNXRuntime mobile packages do not publish 1.18.1; 1.18.0 is the
   # matching mobile release available from CocoaPods/Maven.
   ORT_VERSION: "1.18.0"
+  OPENCV_LITE_REF: "v4.13"
   # Android NDK version (must match what MediaPipe's WORKSPACE expects)
-  NDK_VERSION: "r25c"
+  NDK_VERSION: "r26d"
   NDK_INSTALL_PATH: "/home/runner/android-ndk"
   # Target ABIs — extend as needed: armeabi-v7a, x86_64, x86
   ANDROID_ABI: "arm64-v8a"
@@ -136,14 +137,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /home/runner/opencv_lite_android/${{ matrix.abi }}
-          key: opencv-lite-android-${{ matrix.abi }}-ort${{ env.ORT_VERSION }}-v1
+          key: opencv-lite-android-${{ matrix.abi }}-${{ env.OPENCV_LITE_REF }}-ndk${{ env.NDK_VERSION }}-ort${{ env.ORT_VERSION }}-v1
 
       # -----------------------------------------------------------------------
       # 9. Clone and cross-compile opencv_lite for Android
       # -----------------------------------------------------------------------
       - name: Clone opencv_lite
         if: steps.cache-opencv-lite-android.outputs.cache-hit != 'true'
-        run: git clone --depth 1 https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
+        run: git clone --depth 1 --branch "${OPENCV_LITE_REF}" https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
 
       - name: Cross-compile opencv_lite for Android (${{ matrix.abi }})
         if: steps.cache-opencv-lite-android.outputs.cache-hit != 'true'
@@ -184,15 +185,20 @@ jobs:
             -DORT_SDK="${ORT_SDK}" \
             -DONNXRT_ROOT_DIR="${ORT_SDK}" \
             -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_LIST=core,imgproc,dnn,video \
             -DBUILD_TESTS=OFF \
             -DBUILD_EXAMPLES=OFF \
             -DBUILD_ANDROID_PROJECTS=OFF \
             -DBUILD_ANDROID_EXAMPLES=OFF \
             -DINSTALL_ANDROID_EXAMPLES=OFF \
+            -DBUILD_JAVA=OFF \
+            -DBUILD_opencv_java=OFF \
+            -DBUILD_FAT_JAVA_LIB=OFF \
             -DBUILD_opencv_highgui=OFF
 
           ninja -C /tmp/opencv_lite_build_${ABI} -j$(nproc)
           ninja -C /tmp/opencv_lite_build_${ABI} install
+          cp "${ORT_SDK}/lib/libonnxruntime.so" "${INSTALL_DIR}/lib/"
 
           echo "opencv_lite for Android ${ABI} installed to ${INSTALL_DIR}"
           find "${INSTALL_DIR}" -name "*.so" | sort
@@ -203,26 +209,63 @@ jobs:
       - name: Patch WORKSPACE (Android NDK path)
         working-directory: mediapipe
         run: |
+          ABI="${{ matrix.abi }}"
+          export ABI
           python3 - <<'EOF'
-          import re, pathlib, os
+          import re, pathlib, os, textwrap
 
           ws = pathlib.Path("WORKSPACE")
           content = ws.read_text()
           ndk_home = os.environ.get("ANDROID_NDK_HOME", "/home/runner/android-ndk")
           sdk_home = os.environ.get("ANDROID_HOME", "/home/runner/android-sdk")
+          api_level = os.environ.get("ANDROID_API_LEVEL", "24")
+          abi = os.environ["ABI"]
+          opencv_install = f"/home/runner/opencv_lite_android/{abi}"
 
-          # Update android_sdk_repository
           content = re.sub(
-              r'(android_sdk_repository\s*\([^)]*path\s*=\s*")[^"]*(")',
-              r'\g<1>' + sdk_home + r'\g<2>', content, flags=re.DOTALL
+              r'http_archive\s*\(\s*name\s*=\s*"android_opencv"[\s\S]*?\n\)',
+              textwrap.dedent(f'''
+              new_local_repository(
+                  name = "android_opencv",
+                  build_file = "@//third_party:android_opencv.BUILD",
+                  path = "{opencv_install}",
+              )
+              ''').strip(),
+              content,
+              count=1,
           )
-          # Update android_ndk_repository
+
+          # Drop stale generated entries before appending the SDK/NDK repositories.
           content = re.sub(
-              r'(android_ndk_repository\s*\([^)]*path\s*=\s*")[^"]*(")',
-              r'\g<1>' + ndk_home + r'\g<2>', content, flags=re.DOTALL
+              r'\nandroid_sdk_repository\s*\(\s*name\s*=\s*"androidsdk"[\s\S]*?\n\)',
+              '',
+              content,
           )
+          content = re.sub(
+              r'\nandroid_ndk_repository\s*\(\s*name\s*=\s*"androidndk"[\s\S]*?\n\)',
+              '',
+              content,
+          )
+          content = re.sub(
+              r'\nbind\s*\(\s*name\s*=\s*"android/crosstool"[\s\S]*?\n\)',
+              '',
+              content,
+          )
+          content = re.sub(
+              r'\nregister_toolchains\s*\(\s*"@androidsdk//:all",\s*"@androidndk//:all"\s*\)',
+              '',
+              content,
+          )
+          content += textwrap.dedent(f'''
+
+          android_sdk_repository(name = "androidsdk", api_level = {api_level}, path = "{sdk_home}")
+          android_ndk_repository(name = "androidndk", api_level = {api_level}, path = "{ndk_home}")
+          bind(name = "android/crosstool", actual = "@androidndk//:toolchain")
+          register_toolchains("@androidsdk//:all", "@androidndk//:all")
+          ''')
+
           ws.write_text(content)
-          print("Patched WORKSPACE: Android SDK ->", sdk_home, "| NDK ->", ndk_home)
+          print("Patched WORKSPACE: Android SDK ->", sdk_home, "| NDK ->", ndk_home, "| OpenCV ->", opencv_install)
           EOF
 
       - name: Generate android_opencv.BUILD
@@ -235,10 +278,13 @@ jobs:
           abi = "${ABI}"
           install = f"/home/runner/opencv_lite_android/{abi}"
           libs = sorted(glob.glob(os.path.join(install, "lib", "libopencv_*.so")))
+          ort_lib = os.path.join(install, "lib", "libonnxruntime.so")
 
           print(f"Found Android libs for {abi}: {libs}")
-          srcs = "\n".join(f'        "lib/{os.path.basename(l)}",' for l in libs)
+          srcs = "\n".join(f'        "lib/{os.path.basename(l)}",' for l in libs + ([ort_lib] if os.path.exists(ort_lib) else []))
           linkopts = "\n".join(f'        "-l:libopencv_{os.path.basename(l)[len("libopencv_"):-3]}.so",' for l in libs)
+          if os.path.exists(ort_lib):
+              linkopts += '\n        "-l:libonnxruntime.so",'
 
           content = f"""# Auto-generated for Android {abi}
           cc_library(
@@ -248,7 +294,9 @@ jobs:
                   "include/opencv2/**/*.hpp",
               ]),
               includes = ["include"],
-              srcs = glob(["lib/libopencv_*.so"]),
+              srcs = [
+          {srcs}
+              ],
               linkopts = [
           {linkopts}
               ],
@@ -271,9 +319,27 @@ jobs:
         working-directory: mediapipe
         run: |
           ABI="${{ matrix.abi }}"
+          case "$ABI" in
+            arm64-v8a)
+              BAZEL_ANDROID_CONFIG="android_arm64"
+              BAZEL_CPU="arm64-v8a"
+              ;;
+            armeabi-v7a)
+              BAZEL_ANDROID_CONFIG="android_arm"
+              BAZEL_CPU="armeabi-v7a"
+              ;;
+            x86_64)
+              BAZEL_ANDROID_CONFIG="android"
+              BAZEL_CPU="x86_64"
+              ;;
+          esac
           bazel build \
             -c opt \
-            --config=android_arm64 \
+            --config="${BAZEL_ANDROID_CONFIG}" \
+            --cpu="${BAZEL_CPU}" \
+            --fat_apk_cpu="${BAZEL_CPU}" \
+            --platforms="@//third_party/android:${ABI}" \
+            --android_sdk="@androidsdk//:sdk" \
             --define MEDIAPIPE_DISABLE_GPU=1 \
             //mediapipe/java/com/google/mediapipe/framework:android_framework
 

@@ -11,6 +11,7 @@ env:
   # ONNXRuntime mobile packages do not publish 1.18.1; 1.18.0 is the
   # matching mobile release available from CocoaPods/Maven.
   ORT_VERSION: "1.18.0"
+  OPENCV_LITE_REF: "v4.13"
   # iOS deployment target
   IOS_DEPLOYMENT_TARGET: "15.0"
   OPENCV_IOS_INSTALL: "/Users/runner/opencv_lite_ios"
@@ -97,19 +98,20 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /Users/runner/opencv_lite_ios
-          key: opencv-lite-ios-ort${{ env.ORT_VERSION }}-ios${{ env.IOS_DEPLOYMENT_TARGET }}-v1
+          key: opencv-lite-ios-${{ env.OPENCV_LITE_REF }}-ort${{ env.ORT_VERSION }}-ios${{ env.IOS_DEPLOYMENT_TARGET }}-v1
 
       # -----------------------------------------------------------------------
       # 7. Clone and cross-compile opencv_lite as iOS XCFramework
       # -----------------------------------------------------------------------
       - name: Clone opencv_lite
         if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
-        run: git clone --depth 1 https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
+        run: git clone --depth 1 --branch "${OPENCV_LITE_REF}" https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
 
       - name: Build opencv_lite for iOS arm64 (device)
         if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
         run: |
           set -euxo pipefail
+          export IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}"
           cmake \
             -S /tmp/opencv_lite \
             -B /tmp/opencv_lite_ios_arm64 \
@@ -118,6 +120,8 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneOS_Xcode.cmake \
             -DIOS_ARCH=arm64 \
             -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
             -DCMAKE_CONFIGURATION_TYPES=Release \
             -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/arm64" \
             -DORT_SDK="${ORT_IOS_DEVICE_SDK}" \
@@ -133,6 +137,7 @@ jobs:
         if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
         run: |
           set -euxo pipefail
+          export IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}"
           for SIM_ARCH in arm64 x86_64; do
             cmake \
               -S /tmp/opencv_lite \
@@ -142,6 +147,8 @@ jobs:
               -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneSimulator_Xcode.cmake \
               -DIOS_ARCH="${SIM_ARCH}" \
               -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+              -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
               -DCMAKE_CONFIGURATION_TYPES=Release \
               -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/sim_${SIM_ARCH}" \
               -DORT_SDK="${ORT_IOS_SIMULATOR_SDK}" \

@@ -10,6 +10,7 @@ on:
 env:
   # ONNXRuntime version - opencv_lite supports v1.14 to v1.22
   ORT_VERSION: "1.18.1"
+  OPENCV_LITE_REF: "v4.13"
   # Install prefix for opencv_lite
   OPENCV_INSTALL_PREFIX: "/usr/local"
   # Bazel version via bazelisk
@@ -109,7 +110,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /usr/local/lib/libopencv_*.so*
-          key: opencv-lite-${{ runner.os }}-${{ env.ORT_VERSION }}-v1
+          key: opencv-lite-${{ runner.os }}-${{ env.OPENCV_LITE_REF }}-ort${{ env.ORT_VERSION }}-v1
 
       # -----------------------------------------------------------------------
       # 7. Clone and build opencv_lite
@@ -117,7 +118,7 @@ jobs:
       - name: Clone opencv_lite
         if: steps.cache-opencv-lite.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
+          git clone --depth 1 --branch "${OPENCV_LITE_REF}" https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
 
       - name: Build and install opencv_lite
         if: steps.cache-opencv-lite.outputs.cache-hit != 'true'
