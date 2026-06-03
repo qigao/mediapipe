@@ -95,11 +95,11 @@ jobs:
           ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_ARCHIVE}"
           echo "Downloading ONNXRuntime v${ORT_VERSION} from ${ORT_URL}"
           wget -q "${ORT_URL}" -O "/tmp/${ORT_ARCHIVE}"
-          mkdir -p /opt/onnxruntime
-          tar -xzf "/tmp/${ORT_ARCHIVE}" -C /opt/onnxruntime --strip-components=1
-          echo "ORT_SDK=/opt/onnxruntime" >> $GITHUB_ENV
-          echo "ONNXRuntime installed to /opt/onnxruntime"
-          ls /opt/onnxruntime
+          mkdir -p /home/runner/onnxruntime
+          tar -xzf "/tmp/${ORT_ARCHIVE}" -C /home/runner/onnxruntime --strip-components=1
+          echo "ORT_SDK=/home/runner/onnxruntime" >> $GITHUB_ENV
+          echo "ONNXRuntime installed to /home/runner/onnxruntime"
+          ls /home/runner/onnxruntime
 
       # -----------------------------------------------------------------------
       # 6. Cache opencv_lite build
@@ -347,7 +347,7 @@ jobs:
             -exec cp -P {} "${PKG_DIR}/lib/" \;
 
           # --- opencv_lite ONNX Runtime dependency ---
-          cp -P /opt/onnxruntime/lib/libonnxruntime*.so* "${PKG_DIR}/lib/" 2>/dev/null || true
+          cp -P /home/runner/onnxruntime/lib/libonnxruntime*.so* "${PKG_DIR}/lib/" 2>/dev/null || true
 
           # --- opencv_lite headers ---
           echo "Copying opencv_lite headers..."

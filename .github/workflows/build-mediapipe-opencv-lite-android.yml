@@ -11,12 +11,12 @@ env:
   ORT_VERSION: "1.18.1"
   # Android NDK version (must match what MediaPipe's WORKSPACE expects)
   NDK_VERSION: "r25c"
-  NDK_INSTALL_PATH: "/opt/android-ndk"
+  NDK_INSTALL_PATH: "/home/runner/android-ndk"
   # Target ABIs — extend as needed: armeabi-v7a, x86_64, x86
   ANDROID_ABI: "arm64-v8a"
   # Android API level
   ANDROID_API_LEVEL: "24"
-  OPENCV_ANDROID_INSTALL: "/opt/opencv_lite_android"
+  OPENCV_ANDROID_INSTALL: "/home/runner/opencv_lite_android"
 
 jobs:
   build-android:
@@ -94,15 +94,15 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Install Android SDK
         run: |
-          mkdir -p /opt/android-sdk/cmdline-tools
+          mkdir -p /home/runner/android-sdk/cmdline-tools
           SDK_URL="https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip"
           wget -q "${SDK_URL}" -O /tmp/cmdtools.zip
           unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools_extracted
-          mv /tmp/cmdtools_extracted/cmdline-tools /opt/android-sdk/cmdline-tools/latest
-          echo "ANDROID_HOME=/opt/android-sdk" >> $GITHUB_ENV
-          echo "/opt/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;34.0.0"
+          mv /tmp/cmdtools_extracted/cmdline-tools /home/runner/android-sdk/cmdline-tools/latest
+          echo "ANDROID_HOME=/home/runner/android-sdk" >> $GITHUB_ENV
+          echo "/home/runner/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          yes | /home/runner/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          /home/runner/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;34.0.0"
 
       # -----------------------------------------------------------------------
       # 7. Download ONNXRuntime for Android (ABI-specific)
@@ -113,19 +113,19 @@ jobs:
           ORT_AAR="onnxruntime-android-${ORT_VERSION}.aar"
           ORT_URL="https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/${ORT_VERSION}/${ORT_AAR}"
           echo "Downloading ONNXRuntime Android AAR"
-          mkdir -p /opt/onnxruntime-android
+          mkdir -p /home/runner/onnxruntime-android
           wget -q "${ORT_URL}" -O "/tmp/${ORT_AAR}"
           # AAR is a ZIP — extract the JNI libs for the target ABI
-          unzip -q "/tmp/${ORT_AAR}" -d /opt/onnxruntime-android/aar
+          unzip -q "/tmp/${ORT_AAR}" -d /home/runner/onnxruntime-android/aar
           echo "ORT_ANDROID_AAR=/tmp/${ORT_AAR}" >> $GITHUB_ENV
 
           # Also download the C API headers for CMake cross-build
           ORT_ARCHIVE="onnxruntime-linux-x64-${ORT_VERSION}.tgz"
           wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_ARCHIVE}" -O "/tmp/${ORT_ARCHIVE}"
-          mkdir -p /opt/onnxruntime
-          tar -xzf "/tmp/${ORT_ARCHIVE}" -C /opt/onnxruntime --strip-components=1
+          mkdir -p /home/runner/onnxruntime
+          tar -xzf "/tmp/${ORT_ARCHIVE}" -C /home/runner/onnxruntime --strip-components=1
           # Use headers from x64 package (cross-platform headers are identical)
-          echo "ORT_SDK_HEADERS=/opt/onnxruntime/include" >> $GITHUB_ENV
+          echo "ORT_SDK_HEADERS=/home/runner/onnxruntime/include" >> $GITHUB_ENV
 
       # -----------------------------------------------------------------------
       # 8. Cache opencv_lite (per ABI)
@@ -134,7 +134,7 @@ jobs:
         id: cache-opencv-lite-android
         uses: actions/cache@v4
         with:
-          path: /opt/opencv_lite_android/${{ matrix.abi }}
+          path: /home/runner/opencv_lite_android/${{ matrix.abi }}
           key: opencv-lite-android-${{ matrix.abi }}-ort${{ env.ORT_VERSION }}-v1
 
       # -----------------------------------------------------------------------
@@ -149,7 +149,7 @@ jobs:
         run: |
           ABI="${{ matrix.abi }}"
           TOOLCHAIN="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake"
-          INSTALL_DIR="/opt/opencv_lite_android/${ABI}"
+          INSTALL_DIR="/home/runner/opencv_lite_android/${ABI}"
           mkdir -p /tmp/opencv_lite_build_${ABI}
 
           # Map ABI to ONNXRuntime Android lib path
@@ -161,7 +161,7 @@ jobs:
           esac
 
           # ONNXRuntime Android .so lives inside the AAR's jni/ folder
-          ORT_ANDROID_LIB_DIR="/opt/onnxruntime-android/aar/jni/${ORT_LIB_SUBDIR}"
+          ORT_ANDROID_LIB_DIR="/home/runner/onnxruntime-android/aar/jni/${ORT_LIB_SUBDIR}"
 
           cmake \
             -S /tmp/opencv_lite \
@@ -197,8 +197,8 @@ jobs:
 
           ws = pathlib.Path("WORKSPACE")
           content = ws.read_text()
-          ndk_home = os.environ.get("ANDROID_NDK_HOME", "/opt/android-ndk")
-          sdk_home = os.environ.get("ANDROID_HOME", "/opt/android-sdk")
+          ndk_home = os.environ.get("ANDROID_NDK_HOME", "/home/runner/android-ndk")
+          sdk_home = os.environ.get("ANDROID_HOME", "/home/runner/android-sdk")
 
           # Update android_sdk_repository
           content = re.sub(
@@ -222,7 +222,7 @@ jobs:
           import pathlib, glob, os, textwrap
 
           abi = "${ABI}"
-          install = f"/opt/opencv_lite_android/{abi}"
+          install = f"/home/runner/opencv_lite_android/{abi}"
           libs = sorted(glob.glob(os.path.join(install, "lib", "libopencv_*.so")))
 
           print(f"Found Android libs for {abi}: {libs}")
