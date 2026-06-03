@@ -296,7 +296,8 @@ jobs:
         run: |
           bazel build \
             -c opt \
-            --config=ios_arm64 \
+            --config=ios \
+            --cpu=ios_arm64 \
             --apple_platform_type=ios \
             --ios_minimum_os="${IOS_DEPLOYMENT_TARGET}" \
             --repo_env=HERMETIC_PYTHON_VERSION="${HERMETIC_PYTHON_VERSION}" \
