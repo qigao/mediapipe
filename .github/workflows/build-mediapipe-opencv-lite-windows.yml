@@ -191,6 +191,24 @@ jobs:
           pathlib.Path("third_party/opencv_windows.BUILD").write_text(content)
           print("Written third_party/opencv_windows.BUILD")
 
+      - name: Patch MediaPipe MSVC constinit mismatch
+        working-directory: mediapipe
+        shell: python
+        run: |
+          import pathlib
+
+          path = pathlib.Path("mediapipe/gpu/gpu_service.cc")
+          content = path.read_text()
+          old = "const GraphService<GpuResources> kGpuService("
+          new = "ABSL_CONST_INIT const GraphService<GpuResources> kGpuService("
+          if new in content:
+              print("mediapipe/gpu/gpu_service.cc already has ABSL_CONST_INIT on kGpuService")
+          elif old in content:
+              path.write_text(content.replace(old, new, 1))
+              print("Patched mediapipe/gpu/gpu_service.cc for MSVC constinit consistency")
+          else:
+              raise RuntimeError("Expected kGpuService definition not found")
+
       # -----------------------------------------------------------------------
       # 9. Build MediaPipe hello_world (Windows desktop)
       # -----------------------------------------------------------------------
