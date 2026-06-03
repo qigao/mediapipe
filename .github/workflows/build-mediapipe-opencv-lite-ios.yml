@@ -122,15 +122,23 @@ jobs:
             -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
             -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+            -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="" \
             -DCMAKE_CONFIGURATION_TYPES=Release \
             -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/arm64" \
             -DORT_SDK="${ORT_IOS_DEVICE_SDK}" \
             -DONNXRT_ROOT_DIR="${ORT_IOS_DEVICE_SDK}" \
             -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_LIST=core,imgproc,dnn,video \
             -DBUILD_TESTS=OFF \
             -DBUILD_EXAMPLES=OFF \
+            -DBUILD_JAVA=OFF \
+            -DBUILD_opencv_java=OFF \
+            -DBUILD_FAT_JAVA_LIB=OFF \
             -DBUILD_opencv_highgui=OFF
-          cmake --build /tmp/opencv_lite_ios_arm64 --config Release --parallel $(sysctl -n hw.logicalcpu)
+          cmake --build /tmp/opencv_lite_ios_arm64 --config Release --parallel $(sysctl -n hw.logicalcpu) -- CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
           cmake --install /tmp/opencv_lite_ios_arm64 --config Release
 
       - name: Build opencv_lite for iOS Simulator (arm64 + x86_64)
@@ -149,15 +157,23 @@ jobs:
               -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
               -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
               -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+              -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+              -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+              -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+              -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="" \
               -DCMAKE_CONFIGURATION_TYPES=Release \
               -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/sim_${SIM_ARCH}" \
               -DORT_SDK="${ORT_IOS_SIMULATOR_SDK}" \
               -DONNXRT_ROOT_DIR="${ORT_IOS_SIMULATOR_SDK}" \
               -DBUILD_SHARED_LIBS=OFF \
+              -DBUILD_LIST=core,imgproc,dnn,video \
               -DBUILD_TESTS=OFF \
               -DBUILD_EXAMPLES=OFF \
+              -DBUILD_JAVA=OFF \
+              -DBUILD_opencv_java=OFF \
+              -DBUILD_FAT_JAVA_LIB=OFF \
               -DBUILD_opencv_highgui=OFF
-            cmake --build "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release --parallel $(sysctl -n hw.logicalcpu)
+            cmake --build "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release --parallel $(sysctl -n hw.logicalcpu) -- CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
             cmake --install "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release
           done
 

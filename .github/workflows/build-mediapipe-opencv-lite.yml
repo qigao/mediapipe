@@ -133,10 +133,14 @@ jobs:
             -D CMAKE_INSTALL_PREFIX="${OPENCV_INSTALL_PREFIX}" \
             -D ORT_SDK="${ORT_SDK}" \
             -D BUILD_SHARED_LIBS=ON \
+            -D BUILD_LIST=core,imgproc,dnn,video,highgui \
             -D BUILD_opencv_highgui=ON \
             -D BUILD_TESTS=OFF \
             -D BUILD_EXAMPLES=OFF \
-            -D BUILD_PERF_TESTS=OFF
+            -D BUILD_PERF_TESTS=OFF \
+            -D BUILD_JAVA=OFF \
+            -D BUILD_opencv_java=OFF \
+            -D BUILD_FAT_JAVA_LIB=OFF
 
           ninja -j$(nproc)
           sudo ninja install
