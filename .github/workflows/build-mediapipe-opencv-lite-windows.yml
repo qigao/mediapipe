@@ -41,6 +41,20 @@ jobs:
           choco install wget -y
         shell: powershell
 
+      - name: Install zlib
+        shell: powershell
+        run: |
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkgRoot) {
+            $vcpkgRoot = "C:\vcpkg"
+          }
+          if (-not (Test-Path "$vcpkgRoot\vcpkg.exe")) {
+            git clone https://github.com/microsoft/vcpkg.git "$vcpkgRoot"
+            & "$vcpkgRoot\bootstrap-vcpkg.bat"
+          }
+          & "$vcpkgRoot\vcpkg.exe" install zlib:x64-windows
+          "ZLIB_ROOT=$vcpkgRoot\installed\x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       # -----------------------------------------------------------------------
       # 3. Set up Bazelisk
       # -----------------------------------------------------------------------
@@ -294,7 +308,22 @@ jobs:
         shell: powershell
         run: |
           $env:ORT_SDK = "C:\onnxruntime"
-          bazel build -c opt --copt=/Zc:preprocessor --host_copt=/Zc:preprocessor --copt=/Iexternal/protobuf~/src --host_copt=/Iexternal/protobuf~/src --define MEDIAPIPE_DISABLE_GPU=1 --define protobuf_allow_msvc=true //mediapipe/examples/desktop/hello_world:hello_world
+          $zlibInclude = "$env:ZLIB_ROOT\include"
+          $zlibLib = "$env:ZLIB_ROOT\lib"
+          bazel build -c opt `
+            --copt=/Zc:preprocessor `
+            --host_copt=/Zc:preprocessor `
+            --copt=/Iexternal/protobuf~/src `
+            --host_copt=/Iexternal/protobuf~/src `
+            "--copt=/I$zlibInclude" `
+            "--host_copt=/I$zlibInclude" `
+            "--linkopt=/LIBPATH:$zlibLib" `
+            --linkopt=zlib.lib `
+            "--host_linkopt=/LIBPATH:$zlibLib" `
+            --host_linkopt=zlib.lib `
+            --define MEDIAPIPE_DISABLE_GPU=1 `
+            --define protobuf_allow_msvc=true `
+            //mediapipe/examples/desktop/hello_world:hello_world
 
       # -----------------------------------------------------------------------
       # 10. Package: bundle opencv_lite DLLs + mediapipe into a distributable zip
@@ -335,6 +364,9 @@ jobs:
 
           # --- ONNXRuntime DLL ---
           Copy-Item "C:\onnxruntime\lib\onnxruntime*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue
+
+          # --- zlib DLL from vcpkg ---
+          Copy-Item "$env:ZLIB_ROOT\bin\zlib*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue
 
           # --- opencv_lite headers ---
           Write-Host "Copying headers..."
