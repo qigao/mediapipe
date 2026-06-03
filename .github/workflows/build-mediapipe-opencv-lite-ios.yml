@@ -1,0 +1,265 @@
+name: Build MediaPipe + opencv_lite — iOS
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  ORT_VERSION: "1.18.1"
+  # iOS deployment target
+  IOS_DEPLOYMENT_TARGET: "15.0"
+  OPENCV_IOS_INSTALL: "/opt/opencv_lite_ios"
+
+jobs:
+  build-ios:
+    name: Build (iOS)
+    runs-on: macos-13
+    timeout-minutes: 180
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout MediaPipe
+      # -----------------------------------------------------------------------
+      - name: Checkout MediaPipe
+        uses: actions/checkout@v4
+        with:
+          repository: google-ai-edge/mediapipe
+          ref: master
+          path: mediapipe
+          submodules: recursive
+
+      # -----------------------------------------------------------------------
+      # 2. Select Xcode version
+      # -----------------------------------------------------------------------
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -switch /Applications/Xcode_15.0.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      # -----------------------------------------------------------------------
+      # 3. Install Homebrew dependencies
+      # -----------------------------------------------------------------------
+      - name: Install build dependencies (Homebrew)
+        run: |
+          brew update
+          brew install cmake ninja bazelisk git wget python3
+
+      # -----------------------------------------------------------------------
+      # 4. Cache Bazel artifacts
+      # -----------------------------------------------------------------------
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bazel
+          key: bazel-ios-${{ hashFiles('mediapipe/WORKSPACE') }}
+          restore-keys: bazel-ios-
+
+      # -----------------------------------------------------------------------
+      # 5. Download ONNXRuntime for iOS (XCFramework)
+      # -----------------------------------------------------------------------
+      - name: Download ONNXRuntime (iOS XCFramework)
+        run: |
+          ORT_PKG="onnxruntime-ios-xcframework-${ORT_VERSION}"
+          ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-ios-xcframework-${ORT_VERSION}.zip"
+          echo "Downloading ONNXRuntime iOS XCFramework v${ORT_VERSION}"
+          wget -q "${ORT_URL}" -O /tmp/ort_ios.zip
+          mkdir -p /opt/onnxruntime_ios
+          unzip -q /tmp/ort_ios.zip -d /opt/onnxruntime_ios
+          # Also get headers from macOS package for CMake
+          ORT_MAC="onnxruntime-osx-x86_64-${ORT_VERSION}.tgz"
+          wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_MAC}" \
+               -O /tmp/ort_mac.tgz
+          mkdir -p /opt/onnxruntime_mac
+          tar -xzf /tmp/ort_mac.tgz -C /opt/onnxruntime_mac --strip-components=1
+          echo "ORT_IOS_XCFRAMEWORK=/opt/onnxruntime_ios" >> $GITHUB_ENV
+          echo "ORT_SDK_HEADERS=/opt/onnxruntime_mac/include" >> $GITHUB_ENV
+
+      # -----------------------------------------------------------------------
+      # 6. Cache opencv_lite (iOS)
+      # -----------------------------------------------------------------------
+      - name: Cache opencv_lite (iOS)
+        id: cache-opencv-lite-ios
+        uses: actions/cache@v4
+        with:
+          path: /opt/opencv_lite_ios
+          key: opencv-lite-ios-ort${{ env.ORT_VERSION }}-ios${{ env.IOS_DEPLOYMENT_TARGET }}-v1
+
+      # -----------------------------------------------------------------------
+      # 7. Clone and cross-compile opencv_lite as iOS XCFramework
+      # -----------------------------------------------------------------------
+      - name: Clone opencv_lite
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: git clone --depth 1 https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
+
+      - name: Build opencv_lite for iOS arm64 (device)
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: |
+          cmake \
+            -S /tmp/opencv_lite \
+            -B /tmp/opencv_lite_ios_arm64 \
+            -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneOS_Xcode.cmake \
+            -DIOS_ARCH=arm64 \
+            -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="/opt/opencv_lite_ios/arm64" \
+            -DORT_SDK_HEADERS="${ORT_SDK_HEADERS}" \
+            -DORT_IOS_XCFRAMEWORK="${ORT_IOS_XCFRAMEWORK}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_opencv_highgui=OFF
+          ninja -C /tmp/opencv_lite_ios_arm64 -j$(sysctl -n hw.logicalcpu)
+          ninja -C /tmp/opencv_lite_ios_arm64 install
+
+      - name: Build opencv_lite for iOS Simulator (arm64 + x86_64)
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: |
+          for SIM_ARCH in arm64 x86_64; do
+            cmake \
+              -S /tmp/opencv_lite \
+              -B "/tmp/opencv_lite_sim_${SIM_ARCH}" \
+              -G Ninja \
+              -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneSimulator_Xcode.cmake \
+              -DIOS_ARCH="${SIM_ARCH}" \
+              -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX="/opt/opencv_lite_ios/sim_${SIM_ARCH}" \
+              -DORT_SDK_HEADERS="${ORT_SDK_HEADERS}" \
+              -DORT_IOS_XCFRAMEWORK="${ORT_IOS_XCFRAMEWORK}" \
+              -DBUILD_SHARED_LIBS=OFF \
+              -DBUILD_TESTS=OFF \
+              -DBUILD_EXAMPLES=OFF \
+              -DBUILD_opencv_highgui=OFF
+            ninja -C "/tmp/opencv_lite_sim_${SIM_ARCH}" -j$(sysctl -n hw.logicalcpu)
+            ninja -C "/tmp/opencv_lite_sim_${SIM_ARCH}" install
+          done
+
+      - name: Create fat simulator slice (lipo) and XCFramework
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: |
+          # Find all .a libraries from device build
+          DEVICE_LIBS=$(find /opt/opencv_lite_ios/arm64/lib -name "libopencv_*.a" | sort)
+          echo "Device libs: ${DEVICE_LIBS}"
+
+          mkdir -p /opt/opencv_lite_ios/xcframework_inputs/device/lib
+          mkdir -p /opt/opencv_lite_ios/xcframework_inputs/simulator/lib
+
+          # Copy device libs as-is
+          cp -r /opt/opencv_lite_ios/arm64/lib/libopencv_*.a \
+            /opt/opencv_lite_ios/xcframework_inputs/device/lib/
+
+          # Lipo sim arm64 + x86_64 into fat simulator libs
+          for LIB in $(ls /opt/opencv_lite_ios/sim_arm64/lib/libopencv_*.a); do
+            LIBNAME=$(basename ${LIB})
+            SIM_X86="/opt/opencv_lite_ios/sim_x86_64/lib/${LIBNAME}"
+            if [ -f "${SIM_X86}" ]; then
+              lipo -create "${LIB}" "${SIM_X86}" \
+                -output "/opt/opencv_lite_ios/xcframework_inputs/simulator/lib/${LIBNAME}"
+            else
+              cp "${LIB}" "/opt/opencv_lite_ios/xcframework_inputs/simulator/lib/${LIBNAME}"
+            fi
+          done
+
+          # Copy headers (same across architectures)
+          cp -r /opt/opencv_lite_ios/arm64/include \
+            /opt/opencv_lite_ios/xcframework_inputs/device/include
+          cp -r /opt/opencv_lite_ios/arm64/include \
+            /opt/opencv_lite_ios/xcframework_inputs/simulator/include
+
+          echo "XCFramework inputs prepared."
+          ls /opt/opencv_lite_ios/xcframework_inputs/device/lib/
+          ls /opt/opencv_lite_ios/xcframework_inputs/simulator/lib/
+
+      # -----------------------------------------------------------------------
+      # 8. Patch MediaPipe WORKSPACE for iOS opencv_lite
+      # -----------------------------------------------------------------------
+      - name: Patch WORKSPACE (iOS)
+        working-directory: mediapipe
+        run: |
+          python3 - <<'EOF'
+          import re, pathlib
+
+          ws = pathlib.Path("WORKSPACE")
+          content = ws.read_text()
+
+          # MediaPipe uses opencv_ios_source.BUILD with a local xcframework
+          # Point ios_opencv to our opencv_lite install
+          pattern = r'(new_local_repository\s*\(\s*name\s*=\s*"ios_opencv"[^)]*path\s*=\s*")[^"]*(")'
+          replacement = r'\g<1>/opt/opencv_lite_ios/xcframework_inputs\g<2>'
+          new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+          if new_content == content:
+              print("WARNING: ios_opencv path not found in WORKSPACE — check manually")
+          else:
+              ws.write_text(new_content)
+              print("Patched ios_opencv path")
+          EOF
+
+      - name: Generate opencv_ios_source.BUILD
+        working-directory: mediapipe
+        run: |
+          python3 - <<'EOF'
+          import pathlib, glob, textwrap
+
+          device_libs = sorted(glob.glob("/opt/opencv_lite_ios/xcframework_inputs/device/lib/libopencv_*.a"))
+          lib_entries_device = "\n".join(f'        "device/lib/{pathlib.Path(l).name}",' for l in device_libs)
+          lib_entries_sim    = "\n".join(
+              f'        "simulator/lib/{pathlib.Path(l).name}",' for l in device_libs
+          )
+
+          content = f"""# Auto-generated by build-mediapipe-opencv-lite-ios.yml
+          # opencv_lite static libs for iOS device + simulator
+          cc_library(
+              name = "opencv",
+              hdrs = glob([
+                  "device/include/opencv2/**/*.h",
+                  "device/include/opencv2/**/*.hpp",
+              ]),
+              includes = ["device/include"],
+              srcs = select({{
+                  "@platforms//cpu:aarch64": [
+          {lib_entries_device}
+                  ],
+                  "//conditions:default": [
+          {lib_entries_sim}
+                  ],
+              }}),
+              visibility = ["//visibility:public"],
+              linkstatic = 1,
+          )
+          """
+          content = textwrap.dedent(content)
+          out = pathlib.Path("third_party/opencv_ios_source.BUILD")
+          out.write_text(content)
+          print("Written", out)
+          print(content)
+          EOF
+
+      # -----------------------------------------------------------------------
+      # 9. Build MediaPipe iOS framework
+      # -----------------------------------------------------------------------
+      - name: Build MediaPipe iOS Framework
+        working-directory: mediapipe
+        run: |
+          bazel build \
+            -c opt \
+            --config=ios_arm64 \
+            --apple_platform_type=ios \
+            --ios_minimum_os="${IOS_DEPLOYMENT_TARGET}" \
+            --define MEDIAPIPE_DISABLE_GPU=0 \
+            //mediapipe/objc:mediapipe_framework_ios
+
+      # -----------------------------------------------------------------------
+      # 10. Upload iOS artifact
+      # -----------------------------------------------------------------------
+      - name: Upload iOS Framework artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediapipe-ios-framework
+          path: mediapipe/bazel-bin/mediapipe/objc/MediaPipeFramework.zip
+          retention-days: 7
