@@ -213,8 +213,21 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$stage\include", "$stage\lib", "$stage\bin"
           Copy-Item "$env:ZLIB_ROOT\include\zlib.h" "$stage\include\" -Force
           Copy-Item "$env:ZLIB_ROOT\include\zconf.h" "$stage\include\" -Force
-          Copy-Item "$env:ZLIB_ROOT\lib\zlib.lib" "$stage\lib\" -Force
-          Copy-Item "$env:ZLIB_ROOT\bin\zlib*.dll" "$stage\bin\" -Force
+          $zlibLibs = Get-ChildItem "$env:ZLIB_ROOT\lib" -Filter "*.lib"
+          $zlibLib = $zlibLibs |
+            Where-Object { $_.Name -match "^(zlib|zlibstatic|z)\.lib$" } |
+            Select-Object -First 1
+          if (-not $zlibLib) {
+            $zlibLib = $zlibLibs | Select-Object -First 1
+          }
+          if (-not $zlibLib) {
+            Get-ChildItem "$env:ZLIB_ROOT" -Recurse -Filter "*.lib" | ForEach-Object { Write-Host "Found lib: $($_.FullName)" }
+            throw "Could not find zlib import/static library under $env:ZLIB_ROOT\lib"
+          }
+          Copy-Item $zlibLib.FullName "$stage\lib\zlib.lib" -Force
+          Get-ChildItem "$env:ZLIB_ROOT\bin" -Filter "*.dll" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match "^z(lib)?\d*\.dll$" } |
+            ForEach-Object { Copy-Item $_.FullName "$stage\bin\" -Force }
 
       - name: Patch MediaPipe MSVC constinit mismatch
         working-directory: mediapipe
