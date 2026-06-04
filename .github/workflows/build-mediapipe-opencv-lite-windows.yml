@@ -205,6 +205,17 @@ jobs:
           pathlib.Path("third_party/opencv_windows.BUILD").write_text(content)
           print("Written third_party/opencv_windows.BUILD")
 
+      - name: Stage zlib for Bazel
+        working-directory: mediapipe
+        shell: powershell
+        run: |
+          $stage = "third_party\zlib_windows"
+          New-Item -ItemType Directory -Force -Path "$stage\include", "$stage\lib", "$stage\bin"
+          Copy-Item "$env:ZLIB_ROOT\include\zlib.h" "$stage\include\" -Force
+          Copy-Item "$env:ZLIB_ROOT\include\zconf.h" "$stage\include\" -Force
+          Copy-Item "$env:ZLIB_ROOT\lib\zlib.lib" "$stage\lib\" -Force
+          Copy-Item "$env:ZLIB_ROOT\bin\zlib*.dll" "$stage\bin\" -Force
+
       - name: Patch MediaPipe MSVC constinit mismatch
         working-directory: mediapipe
         shell: python
@@ -308,8 +319,8 @@ jobs:
         shell: powershell
         run: |
           $env:ORT_SDK = "C:\onnxruntime"
-          $zlibInclude = "$env:ZLIB_ROOT\include"
-          $zlibLib = "$env:ZLIB_ROOT\lib"
+          $zlibInclude = "third_party/zlib_windows/include"
+          $zlibLib = "third_party/zlib_windows/lib"
           bazel build -c opt `
             --copt=/Zc:preprocessor `
             --host_copt=/Zc:preprocessor `
@@ -366,7 +377,7 @@ jobs:
           Copy-Item "C:\onnxruntime\lib\onnxruntime*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue
 
           # --- zlib DLL from vcpkg ---
-          Copy-Item "$env:ZLIB_ROOT\bin\zlib*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue
+          Copy-Item "mediapipe\third_party\zlib_windows\bin\zlib*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue
 
           # --- opencv_lite headers ---
           Write-Host "Copying headers..."
