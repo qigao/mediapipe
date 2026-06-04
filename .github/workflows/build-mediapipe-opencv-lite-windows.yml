@@ -215,17 +215,42 @@ jobs:
         run: |
           import pathlib
 
-          path = pathlib.Path("mediapipe/gpu/gpu_service.cc")
-          content = path.read_text()
-          old = "const GraphService<GpuResources> kGpuService("
-          new = "ABSL_CONST_INIT const GraphService<GpuResources> kGpuService("
-          if new in content:
-              print("mediapipe/gpu/gpu_service.cc already has ABSL_CONST_INIT on kGpuService")
-          elif old in content:
+          def patch_once(path, old, new, label):
+              content = path.read_text()
+              if new in content:
+                  print(f"{label} already patched")
+                  return
+              if old not in content:
+                  raise RuntimeError(f"Expected text not found for {label}")
               path.write_text(content.replace(old, new, 1))
-              print("Patched mediapipe/gpu/gpu_service.cc for MSVC constinit consistency")
-          else:
-              raise RuntimeError("Expected kGpuService definition not found")
+              print(f"Patched {label}")
+
+          patch_once(
+              pathlib.Path("mediapipe/gpu/gpu_service.cc"),
+              "const GraphService<GpuResources> kGpuService(",
+              "ABSL_CONST_INIT const GraphService<GpuResources> kGpuService(",
+              "mediapipe/gpu/gpu_service.cc kGpuService",
+          )
+          patch_once(
+              pathlib.Path("mediapipe/framework/legacy_calculator_support.cc"),
+              """template <>
+          thread_local CalculatorContext*
+              LegacyCalculatorSupport::Scoped<CalculatorContext>::current_ = nullptr;""",
+              """template <>
+          ABSL_CONST_INIT thread_local CalculatorContext*
+              LegacyCalculatorSupport::Scoped<CalculatorContext>::current_ = nullptr;""",
+              "legacy_calculator_support.cc CalculatorContext current_",
+          )
+          patch_once(
+              pathlib.Path("mediapipe/framework/legacy_calculator_support.cc"),
+              """template <>
+          thread_local CalculatorContract*
+              LegacyCalculatorSupport::Scoped<CalculatorContract>::current_ = nullptr;""",
+              """template <>
+          ABSL_CONST_INIT thread_local CalculatorContract*
+              LegacyCalculatorSupport::Scoped<CalculatorContract>::current_ = nullptr;""",
+              "legacy_calculator_support.cc CalculatorContract current_",
+          )
 
       - name: Fetch Bazel external repositories
         working-directory: mediapipe
