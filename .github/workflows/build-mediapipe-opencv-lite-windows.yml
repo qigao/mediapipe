@@ -251,6 +251,7 @@ jobs:
 
           header = root / "src/google/protobuf/json/internal/untyped_message.h"
           source = root / "src/google/protobuf/json/internal/untyped_message.cc"
+          io_build = root / "src/google/protobuf/io/BUILD.bazel"
 
           def replace_once(path, old, new):
               content = path.read_text()
@@ -301,6 +302,20 @@ jobs:
               source,
               "  Value& slot = emplace_result.first->second;",
               "  Value& slot = *emplace_result.first->second;",
+          )
+          changed |= replace_once(
+              io_build,
+              '        "//build_defs:config_msvc": [],\n'
+              '        "//conditions:default": ["-DHAVE_ZLIB"],',
+              '        "//build_defs:config_msvc": ["-DHAVE_ZLIB"],\n'
+              '        "//conditions:default": ["-DHAVE_ZLIB"],',
+          )
+          changed |= replace_once(
+              io_build,
+              '        "//build_defs:config_msvc": [],\n'
+              '        "//conditions:default": ["@zlib"],',
+              '        "//build_defs:config_msvc": ["@zlib"],\n'
+              '        "//conditions:default": ["@zlib"],',
           )
           print(f"{'Patched' if changed else 'Already patched'} protobuf at {root}")
 
