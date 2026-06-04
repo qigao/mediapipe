@@ -41,20 +41,6 @@ jobs:
           choco install wget -y
         shell: powershell
 
-      - name: Install zlib
-        shell: powershell
-        run: |
-          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
-          if (-not $vcpkgRoot) {
-            $vcpkgRoot = "C:\vcpkg"
-          }
-          if (-not (Test-Path "$vcpkgRoot\vcpkg.exe")) {
-            git clone https://github.com/microsoft/vcpkg.git "$vcpkgRoot"
-            & "$vcpkgRoot\bootstrap-vcpkg.bat"
-          }
-          & "$vcpkgRoot\vcpkg.exe" install zlib:x64-windows
-          "ZLIB_ROOT=$vcpkgRoot\installed\x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
       # -----------------------------------------------------------------------
       # 3. Set up Bazelisk
       # -----------------------------------------------------------------------
@@ -74,7 +60,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/bazel
-          key: bazel-windows-${{ hashFiles('mediapipe/WORKSPACE') }}
+          key: bazel-windows-${{ hashFiles('mediapipe/WORKSPACE', 'mediapipe/MODULE.bazel') }}
           restore-keys: bazel-windows-
 
       # -----------------------------------------------------------------------
@@ -166,6 +152,24 @@ jobs:
               ws.write_text(new_content)
               print("Patched windows_opencv path -> C:/opencv_lite_install")
 
+      - name: Add Bazel zlib dependency
+        working-directory: mediapipe
+        shell: python
+        run: |
+          import pathlib
+
+          path = pathlib.Path("MODULE.bazel")
+          content = path.read_text()
+          dep = 'bazel_dep(name = "zlib", version = "1.3.2")'
+          if dep in content:
+              print("zlib bazel_dep already present")
+          else:
+              anchor = 'bazel_dep(name = "protobuf", repo_name = "com_google_protobuf")\n'
+              if anchor not in content:
+                  raise RuntimeError("Could not find protobuf bazel_dep anchor in MODULE.bazel")
+              path.write_text(content.replace(anchor, anchor + dep + "\n", 1))
+              print("Added Bazel zlib dependency to MODULE.bazel")
+
       - name: Generate opencv_windows.BUILD
         working-directory: mediapipe
         shell: python
@@ -204,30 +208,6 @@ jobs:
           content = textwrap.dedent(content)
           pathlib.Path("third_party/opencv_windows.BUILD").write_text(content)
           print("Written third_party/opencv_windows.BUILD")
-
-      - name: Stage zlib for Bazel
-        working-directory: mediapipe
-        shell: powershell
-        run: |
-          $stage = "third_party\zlib_windows"
-          New-Item -ItemType Directory -Force -Path "$stage\include", "$stage\lib", "$stage\bin"
-          Copy-Item "$env:ZLIB_ROOT\include\zlib.h" "$stage\include\" -Force
-          Copy-Item "$env:ZLIB_ROOT\include\zconf.h" "$stage\include\" -Force
-          $zlibLibs = Get-ChildItem "$env:ZLIB_ROOT\lib" -Filter "*.lib"
-          $zlibLib = $zlibLibs |
-            Where-Object { $_.Name -match "^(zlib|zlibstatic|z)\.lib$" } |
-            Select-Object -First 1
-          if (-not $zlibLib) {
-            $zlibLib = $zlibLibs | Select-Object -First 1
-          }
-          if (-not $zlibLib) {
-            Get-ChildItem "$env:ZLIB_ROOT" -Recurse -Filter "*.lib" | ForEach-Object { Write-Host "Found lib: $($_.FullName)" }
-            throw "Could not find zlib import/static library under $env:ZLIB_ROOT\lib"
-          }
-          Copy-Item $zlibLib.FullName "$stage\lib\zlib.lib" -Force
-          Get-ChildItem "$env:ZLIB_ROOT\bin" -Filter "*.dll" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match "^z(lib)?\d*\.dll$" } |
-            ForEach-Object { Copy-Item $_.FullName "$stage\bin\" -Force }
 
       - name: Patch MediaPipe MSVC constinit mismatch
         working-directory: mediapipe
@@ -332,19 +312,11 @@ jobs:
         shell: powershell
         run: |
           $env:ORT_SDK = "C:\onnxruntime"
-          $zlibInclude = "third_party/zlib_windows/include"
-          $zlibLib = "third_party/zlib_windows/lib"
           bazel build -c opt `
             --copt=/Zc:preprocessor `
             --host_copt=/Zc:preprocessor `
             --copt=/Iexternal/protobuf~/src `
             --host_copt=/Iexternal/protobuf~/src `
-            "--copt=/I$zlibInclude" `
-            "--host_copt=/I$zlibInclude" `
-            "--linkopt=/LIBPATH:$zlibLib" `
-            --linkopt=zlib.lib `
-            "--host_linkopt=/LIBPATH:$zlibLib" `
-            --host_linkopt=zlib.lib `
             --define MEDIAPIPE_DISABLE_GPU=1 `
             --define protobuf_allow_msvc=true `
             //mediapipe/examples/desktop/hello_world:hello_world
@@ -388,9 +360,6 @@ jobs:
 
           # --- ONNXRuntime DLL ---
           Copy-Item "C:\onnxruntime\lib\onnxruntime*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue
-
-          # --- zlib DLL from vcpkg ---
-          Copy-Item "mediapipe\third_party\zlib_windows\bin\zlib*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue
 
           # --- opencv_lite headers ---
           Write-Host "Copying headers..."
