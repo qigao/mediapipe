@@ -1297,8 +1297,25 @@ jobs:
           mkdir -p "${PKG_DIR}/share"
           mkdir -p "${PKG_DIR}/lib/mediapipe"
 
-          cp mediapipe/bazel-bin/mediapipe/java/com/google/mediapipe/framework/*.aar \
-            "${PKG_DIR}/android/"
+          mapfile -t ANDROID_OUTPUTS < <(
+            find mediapipe/bazel-bin/mediapipe/java/com/google/mediapipe/framework \
+              -type f \( -name "*.aar" -o -name "*.jar" -o -name "*.so" \) 2>/dev/null | sort
+          )
+          if [ "${#ANDROID_OUTPUTS[@]}" -eq 0 ]; then
+            mapfile -t ANDROID_OUTPUTS < <(
+              find mediapipe/bazel-bin \
+                -type f \( -name "*android_framework*" -o -name "*.aar" -o -name "*.jar" \) 2>/dev/null | sort
+            )
+          fi
+          if [ "${#ANDROID_OUTPUTS[@]}" -eq 0 ]; then
+            echo "WARNING: No Android MediaPipe AAR/JAR outputs found under mediapipe/bazel-bin"
+            find mediapipe/bazel-bin -maxdepth 6 -type f | sort | head -200
+          else
+            printf '%s\n' "${ANDROID_OUTPUTS[@]}"
+            for output in "${ANDROID_OUTPUTS[@]}"; do
+              cp "${output}" "${PKG_DIR}/android/"
+            done
+          fi
           cp -a "/home/runner/opencv_lite_android/${ABI}/." "${PKG_DIR}/opencv_lite/"
 
           (
