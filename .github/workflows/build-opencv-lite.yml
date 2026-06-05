@@ -7,10 +7,6 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
-
 env:
   OPENCV_LITE_REF: "v4.13"
 
@@ -110,20 +106,6 @@ jobs:
           path: /tmp/${{ env.OPENCV_PKG_NAME }}.tar.gz
           retention-days: 30
           if-no-files-found: error
-
-      - name: Set up ORAS
-        if: success() && github.event_name != 'pull_request'
-        uses: oras-project/setup-oras@v1
-
-      - name: Publish opencv_lite Linux package
-        if: success() && github.event_name != 'pull_request'
-        run: |
-          OWNER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          REPO="$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
-          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
-          cd /tmp
-          oras push "ghcr.io/${OWNER}/${REPO}/opencv-lite:${OPENCV_PKG_NAME}" \
-            "${OPENCV_PKG_NAME}.tar.gz:application/gzip"
 
   windows:
     name: Build opencv_lite (Windows x64)
@@ -226,20 +208,6 @@ jobs:
           path: C:\pkg\${{ env.OPENCV_PKG_NAME }}.zip
           retention-days: 30
           if-no-files-found: error
-
-      - name: Set up ORAS
-        if: success() && github.event_name != 'pull_request'
-        uses: oras-project/setup-oras@v1
-
-      - name: Publish opencv_lite Windows package
-        if: success() && github.event_name != 'pull_request'
-        shell: powershell
-        run: |
-          $owner = $env:GITHUB_REPOSITORY_OWNER.ToLowerInvariant()
-          $repo = $env:GITHUB_REPOSITORY.Split('/')[1].ToLowerInvariant()
-          "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
-          Set-Location C:\pkg
-          oras push "ghcr.io/$owner/$repo/opencv-lite:$env:OPENCV_PKG_NAME" "$env:OPENCV_PKG_NAME.zip:application/zip"
 
   android:
     name: Build opencv_lite (Android ${{ matrix.abi }})
