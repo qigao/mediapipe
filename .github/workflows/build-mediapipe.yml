@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  workflow_run:
+    workflows: ["Build opencv_lite Multi-Platform"]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
@@ -12,6 +15,7 @@ jobs:
     name: Build MediaPipe + opencv_lite
     runs-on: ubuntu-22.04
     timeout-minutes: 120
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     env:
       ORT_VERSION: "1.18.1"
@@ -343,6 +347,7 @@ jobs:
           mkdir -p "${PKG_DIR}/bin"
           mkdir -p "${PKG_DIR}/lib"
           mkdir -p "${PKG_DIR}/include"
+          mkdir -p "${PKG_DIR}/share"
 
           # --- opencv_lite shared libraries ---
           echo "Copying opencv_lite shared libraries..."
@@ -366,9 +371,32 @@ jobs:
             "${PKG_DIR}/bin/hello_world"
           chmod +x "${PKG_DIR}/bin/hello_world"
 
-          # --- MediaPipe shared library (if built as .so) ---
-          find mediapipe/bazel-bin -name "libmediapipe*.so" \
-            -exec cp {} "${PKG_DIR}/lib/" \; 2>/dev/null || true
+          # --- MediaPipe headers and protos ---
+          echo "Copying MediaPipe headers and proto definitions..."
+          (
+            cd mediapipe
+            find mediapipe -type f \( -name "*.h" -o -name "*.inc" -o -name "*.proto" \) \
+              -exec cp --parents {} "${PKG_DIR}/include/" \;
+          )
+
+          # --- MediaPipe graph/config assets ---
+          echo "Copying MediaPipe graph assets..."
+          (
+            cd mediapipe
+            find mediapipe -type f \( -name "*.pbtxt" -o -name "*.binarypb" \) \
+              -exec cp --parents {} "${PKG_DIR}/share/" \;
+          )
+
+          # --- MediaPipe Bazel-built libraries, if any were materialized ---
+          echo "Copying MediaPipe Bazel library outputs..."
+          if [ -d "mediapipe/bazel-bin/mediapipe" ]; then
+            mkdir -p "${PKG_DIR}/lib/mediapipe"
+            (
+              cd mediapipe/bazel-bin
+              find mediapipe -type f \( -name "*.a" -o -name "*.so" \) \
+                -exec cp --parents {} "${PKG_DIR}/lib/mediapipe/" \;
+            )
+          fi
 
           # --- Metadata ---
           cat > "${PKG_DIR}/README.txt" <<EOF
@@ -383,8 +411,10 @@ jobs:
 
           Contents:
             bin/   — MediaPipe example binaries
-            lib/   — opencv_lite + ONNXRuntime shared libraries (.so)
+            lib/   — opencv_lite + ONNXRuntime shared libraries and MediaPipe Bazel library outputs when present
             include/opencv2/ — opencv_lite C++ headers
+            include/mediapipe/ — MediaPipe public headers and proto definitions
+            share/mediapipe/ — MediaPipe graph/config assets
 
           Usage (Linux):
             export LD_LIBRARY_PATH=\$PWD/lib:\$LD_LIBRARY_PATH
@@ -426,6 +456,7 @@ jobs:
     name: Build (Windows x64)
     runs-on: windows-2022
     timeout-minutes: 180
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     env:
       ORT_VERSION: "1.18.1"
@@ -788,6 +819,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$pkgDir\bin"
           New-Item -ItemType Directory -Force -Path "$pkgDir\lib"
           New-Item -ItemType Directory -Force -Path "$pkgDir\include"
+          New-Item -ItemType Directory -Force -Path "$pkgDir\share"
 
           # --- opencv_lite DLLs ---
           Write-Host "Copying opencv_lite DLLs..."
@@ -828,6 +860,44 @@ jobs:
             "mediapipe\bazel-bin\mediapipe\examples\desktop\hello_world\hello_world.exe" `
             "$pkgDir\bin\hello_world.exe" -ErrorAction SilentlyContinue
 
+          # --- MediaPipe headers and protos ---
+          Write-Host "Copying MediaPipe headers and proto definitions..."
+          $mediaPipeRoot = (Resolve-Path "mediapipe").Path
+          Get-ChildItem "$mediaPipeRoot\mediapipe" -Recurse -File |
+            Where-Object { $_.Extension -in @(".h", ".inc", ".proto") } |
+            ForEach-Object {
+              $rel = $_.FullName.Substring($mediaPipeRoot.Length + 1)
+              $dest = Join-Path "$pkgDir\include" $rel
+              New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+              Copy-Item $_.FullName $dest -Force
+            }
+
+          # --- MediaPipe graph/config assets ---
+          Write-Host "Copying MediaPipe graph assets..."
+          Get-ChildItem "$mediaPipeRoot\mediapipe" -Recurse -File |
+            Where-Object { $_.Extension -in @(".pbtxt", ".binarypb") } |
+            ForEach-Object {
+              $rel = $_.FullName.Substring($mediaPipeRoot.Length + 1)
+              $dest = Join-Path "$pkgDir\share" $rel
+              New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+              Copy-Item $_.FullName $dest -Force
+            }
+
+          # --- MediaPipe Bazel-built libraries, if any were materialized ---
+          Write-Host "Copying MediaPipe Bazel library outputs..."
+          $bazelRoot = "mediapipe\bazel-bin"
+          if (Test-Path "$bazelRoot\mediapipe") {
+            Get-ChildItem "$bazelRoot\mediapipe" -Recurse -File |
+              Where-Object { $_.Extension -in @(".lib", ".a", ".dll") } |
+              ForEach-Object {
+                $rootPath = (Resolve-Path $bazelRoot).Path
+                $rel = $_.FullName.Substring($rootPath.Length + 1)
+                $dest = Join-Path "$pkgDir\lib\mediapipe" $rel
+                New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+                Copy-Item $_.FullName $dest -Force
+              }
+          }
+
           # --- README ---
           $readmeContent = @"
           MediaPipe + opencv_lite -- Windows x64
@@ -840,8 +910,10 @@ jobs:
 
           Contents:
             bin\   -- MediaPipe binaries + opencv_lite DLLs + ONNX Runtime DLL
-            lib\   -- opencv_lite import libraries (.lib)
+            lib\   -- opencv_lite import libraries and MediaPipe Bazel library outputs when present
             include\opencv2\ -- opencv_lite C++ headers
+            include\mediapipe\ -- MediaPipe public headers and proto definitions
+            share\mediapipe\ -- MediaPipe graph/config assets
 
           Usage:
             Add bin\ to your PATH or place DLLs next to your executable.
@@ -882,6 +954,7 @@ jobs:
     name: Build (Android ${{ matrix.abi }})
     runs-on: ubuntu-22.04
     timeout-minutes: 180
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     env:
       ORT_VERSION: "1.18.0"
@@ -1210,21 +1283,75 @@ jobs:
             --define MEDIAPIPE_DISABLE_GPU=1 \
             //mediapipe/java/com/google/mediapipe/framework:android_framework
 
+      - name: Package MediaPipe (Android ${{ matrix.abi }})
+        run: |
+          set -euxo pipefail
+          ABI="${{ matrix.abi }}"
+          VERSION="$(date +%Y%m%d)-${GITHUB_SHA::7}"
+          PKG_NAME="mediapipe-opencv_lite-android-${ABI}-${VERSION}"
+          PKG_DIR="/tmp/${PKG_NAME}"
+
+          mkdir -p "${PKG_DIR}/android"
+          mkdir -p "${PKG_DIR}/opencv_lite"
+          mkdir -p "${PKG_DIR}/include"
+          mkdir -p "${PKG_DIR}/share"
+          mkdir -p "${PKG_DIR}/lib/mediapipe"
+
+          cp mediapipe/bazel-bin/mediapipe/java/com/google/mediapipe/framework/*.aar \
+            "${PKG_DIR}/android/"
+          cp -a "/home/runner/opencv_lite_android/${ABI}/." "${PKG_DIR}/opencv_lite/"
+
+          (
+            cd mediapipe
+            find mediapipe -type f \( -name "*.h" -o -name "*.inc" -o -name "*.proto" \) \
+              -exec cp --parents {} "${PKG_DIR}/include/" \;
+            find mediapipe -type f \( -name "*.pbtxt" -o -name "*.binarypb" \) \
+              -exec cp --parents {} "${PKG_DIR}/share/" \;
+          )
+
+          if [ -d "mediapipe/bazel-bin/mediapipe" ]; then
+            (
+              cd mediapipe/bazel-bin
+              find mediapipe -type f \( -name "*.a" -o -name "*.so" -o -name "*.jar" \) \
+                -exec cp --parents {} "${PKG_DIR}/lib/mediapipe/" \;
+            )
+          fi
+
+          cat > "${PKG_DIR}/README.txt" <<EOF
+          MediaPipe + opencv_lite -- Android ${ABI}
+          Built:    $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Commit:   ${GITHUB_SHA}
+          Ref:      ${GITHUB_REF}
+          ONNXRuntime version: ${ORT_VERSION}
+
+          Contents:
+            android/ -- MediaPipe Android AAR
+            opencv_lite/ -- opencv_lite Android install payload for ${ABI}
+            include/mediapipe/ -- MediaPipe headers and proto definitions
+            share/mediapipe/ -- MediaPipe graph/config assets
+            lib/mediapipe/ -- MediaPipe Bazel library outputs when present
+          EOF
+
+          tar -czf "/tmp/${PKG_NAME}.tar.gz" -C /tmp "${PKG_NAME}"
+          echo "MEDIAPIPE_ANDROID_PKG_NAME=${PKG_NAME}" >> $GITHUB_ENV
+
       # -----------------------------------------------------------------------
-      # 12. Upload AAR artifact
+      # 12. Upload Android package artifact
       # -----------------------------------------------------------------------
-      - name: Upload Android artifact (${{ matrix.abi }})
+      - name: Upload Android package artifact (${{ matrix.abi }})
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: mediapipe-android-${{ matrix.abi }}
-          path: mediapipe/bazel-bin/mediapipe/java/com/google/mediapipe/framework/*.aar
-          retention-days: 7
+          name: ${{ env.MEDIAPIPE_ANDROID_PKG_NAME }}
+          path: /tmp/${{ env.MEDIAPIPE_ANDROID_PKG_NAME }}.tar.gz
+          retention-days: 30
+          if-no-files-found: error
 
   ios:
     name: Build (iOS)
     runs-on: macos-latest
     timeout-minutes: 180
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     env:
       ORT_VERSION: "1.18.0"
@@ -1514,13 +1641,64 @@ jobs:
             --define MEDIAPIPE_DISABLE_GPU=0 \
             //mediapipe/objc:mediapipe_framework_ios
 
+      - name: Package MediaPipe (iOS)
+        run: |
+          set -euxo pipefail
+          VERSION="$(date +%Y%m%d)-${GITHUB_SHA::7}"
+          PKG_NAME="mediapipe-opencv_lite-ios-${VERSION}"
+          PKG_DIR="/tmp/${PKG_NAME}"
+
+          mkdir -p "${PKG_DIR}/ios"
+          mkdir -p "${PKG_DIR}/opencv_lite"
+          mkdir -p "${PKG_DIR}/include"
+          mkdir -p "${PKG_DIR}/share"
+          mkdir -p "${PKG_DIR}/lib/mediapipe"
+
+          cp mediapipe/bazel-bin/mediapipe/objc/MediaPipeFramework.zip "${PKG_DIR}/ios/"
+          cp -a /Users/runner/opencv_lite_ios/xcframework_inputs "${PKG_DIR}/opencv_lite/"
+
+          (
+            cd mediapipe
+            find mediapipe -type f \( -name "*.h" -o -name "*.inc" -o -name "*.proto" \) \
+              -exec cp --parents {} "${PKG_DIR}/include/" \;
+            find mediapipe -type f \( -name "*.pbtxt" -o -name "*.binarypb" \) \
+              -exec cp --parents {} "${PKG_DIR}/share/" \;
+          )
+
+          if [ -d "mediapipe/bazel-bin/mediapipe" ]; then
+            (
+              cd mediapipe/bazel-bin
+              find mediapipe -type f \( -name "*.a" -o -name "*.dylib" -o -name "*.framework" -o -name "*.zip" \) \
+                -exec cp --parents {} "${PKG_DIR}/lib/mediapipe/" \; 2>/dev/null || true
+            )
+          fi
+
+          cat > "${PKG_DIR}/README.txt" <<EOF
+          MediaPipe + opencv_lite -- iOS
+          Built:    $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Commit:   ${GITHUB_SHA}
+          Ref:      ${GITHUB_REF}
+          ONNXRuntime version: ${ORT_VERSION}
+
+          Contents:
+            ios/ -- MediaPipe iOS framework zip
+            opencv_lite/ -- opencv_lite iOS device/simulator static library payload
+            include/mediapipe/ -- MediaPipe headers and proto definitions
+            share/mediapipe/ -- MediaPipe graph/config assets
+            lib/mediapipe/ -- MediaPipe Bazel library outputs when present
+          EOF
+
+          tar -czf "/tmp/${PKG_NAME}.tar.gz" -C /tmp "${PKG_NAME}"
+          echo "MEDIAPIPE_IOS_PKG_NAME=${PKG_NAME}" >> $GITHUB_ENV
+
       # -----------------------------------------------------------------------
-      # 10. Upload iOS artifact
+      # 10. Upload iOS package artifact
       # -----------------------------------------------------------------------
-      - name: Upload iOS Framework artifact
+      - name: Upload iOS package artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: mediapipe-ios-framework
-          path: mediapipe/bazel-bin/mediapipe/objc/MediaPipeFramework.zip
-          retention-days: 7
+          name: ${{ env.MEDIAPIPE_IOS_PKG_NAME }}
+          path: /tmp/${{ env.MEDIAPIPE_IOS_PKG_NAME }}.tar.gz
+          retention-days: 30
+          if-no-files-found: error

@@ -308,6 +308,34 @@ jobs:
           ninja -C /tmp/opencv_lite_build_${ABI} install
           cp "${ORT_SDK}/lib/libonnxruntime.so" "${INSTALL_DIR}/lib/"
 
+      - name: Package opencv_lite (Android ${{ matrix.abi }})
+        run: |
+          set -euxo pipefail
+          ABI="${{ matrix.abi }}"
+          VERSION="$(date +%Y%m%d)-${GITHUB_SHA::7}"
+          PKG_NAME="opencv_lite-android-${ABI}-${VERSION}"
+          PKG_DIR="/tmp/${PKG_NAME}"
+          mkdir -p "${PKG_DIR}"
+          cp -a "/home/runner/opencv_lite_android/${ABI}/." "${PKG_DIR}/"
+          cat > "${PKG_DIR}/README.txt" <<EOF
+          opencv_lite -- Android ${ABI}
+          Built:    $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Commit:   ${GITHUB_SHA}
+          Ref:      ${GITHUB_REF}
+          ONNXRuntime version: ${ORT_VERSION}
+          EOF
+          tar -czf "/tmp/${PKG_NAME}.tar.gz" -C /tmp "${PKG_NAME}"
+          echo "OPENCV_ANDROID_PKG_NAME=${PKG_NAME}" >> $GITHUB_ENV
+
+      - name: Upload opencv_lite Android package (${{ matrix.abi }})
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OPENCV_ANDROID_PKG_NAME }}
+          path: /tmp/${{ env.OPENCV_ANDROID_PKG_NAME }}.tar.gz
+          retention-days: 30
+          if-no-files-found: error
+
   ios:
     name: Build opencv_lite (iOS)
     runs-on: macos-latest
@@ -447,3 +475,30 @@ jobs:
           done
           cp -r /Users/runner/opencv_lite_ios/arm64/include /Users/runner/opencv_lite_ios/xcframework_inputs/device/include
           cp -r /Users/runner/opencv_lite_ios/arm64/include /Users/runner/opencv_lite_ios/xcframework_inputs/simulator/include
+
+      - name: Package opencv_lite (iOS)
+        run: |
+          set -euxo pipefail
+          VERSION="$(date +%Y%m%d)-${GITHUB_SHA::7}"
+          PKG_NAME="opencv_lite-ios-${VERSION}"
+          PKG_DIR="/tmp/${PKG_NAME}"
+          mkdir -p "${PKG_DIR}"
+          cp -a /Users/runner/opencv_lite_ios/xcframework_inputs "${PKG_DIR}/"
+          cat > "${PKG_DIR}/README.txt" <<EOF
+          opencv_lite -- iOS
+          Built:    $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Commit:   ${GITHUB_SHA}
+          Ref:      ${GITHUB_REF}
+          ONNXRuntime version: ${ORT_VERSION}
+          EOF
+          tar -czf "/tmp/${PKG_NAME}.tar.gz" -C /tmp "${PKG_NAME}"
+          echo "OPENCV_IOS_PKG_NAME=${PKG_NAME}" >> $GITHUB_ENV
+
+      - name: Upload opencv_lite iOS package
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OPENCV_IOS_PKG_NAME }}
+          path: /tmp/${{ env.OPENCV_IOS_PKG_NAME }}.tar.gz
+          retention-days: 30
+          if-no-files-found: error
