@@ -119,9 +119,11 @@ jobs:
         if: success() && github.event_name != 'pull_request'
         run: |
           OWNER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          REPO="$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
           echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
-          oras push "ghcr.io/${OWNER}/opencv-lite:${OPENCV_PKG_NAME}" \
-            "/tmp/${OPENCV_PKG_NAME}.tar.gz:application/gzip"
+          cd /tmp
+          oras push "ghcr.io/${OWNER}/${REPO}/opencv-lite:${OPENCV_PKG_NAME}" \
+            "${OPENCV_PKG_NAME}.tar.gz:application/gzip"
 
   windows:
     name: Build opencv_lite (Windows x64)
@@ -234,9 +236,10 @@ jobs:
         shell: powershell
         run: |
           $owner = $env:GITHUB_REPOSITORY_OWNER.ToLowerInvariant()
+          $repo = $env:GITHUB_REPOSITORY.Split('/')[1].ToLowerInvariant()
           "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
           Set-Location C:\pkg
-          oras push "ghcr.io/$owner/opencv-lite:$env:OPENCV_PKG_NAME" "$env:OPENCV_PKG_NAME.zip:application/zip"
+          oras push "ghcr.io/$owner/$repo/opencv-lite:$env:OPENCV_PKG_NAME" "$env:OPENCV_PKG_NAME.zip:application/zip"
 
   android:
     name: Build opencv_lite (Android ${{ matrix.abi }})
