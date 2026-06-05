@@ -1671,7 +1671,27 @@ jobs:
           mkdir -p "${PKG_DIR}/share"
           mkdir -p "${PKG_DIR}/lib/mediapipe"
 
-          cp mediapipe/bazel-bin/mediapipe/objc/MediaPipeFramework.zip "${PKG_DIR}/ios/"
+          mapfile -t IOS_OUTPUTS < <(
+            find mediapipe/bazel-bin/mediapipe/objc \
+              \( -type f \( -name "*.zip" -o -name "*.a" -o -name "*.dylib" \) -o -type d -name "*.framework" \) \
+              2>/dev/null | sort
+          )
+          if [ "${#IOS_OUTPUTS[@]}" -eq 0 ]; then
+            mapfile -t IOS_OUTPUTS < <(
+              find mediapipe/bazel-bin \
+                \( -type f \( -name "*MediaPipe*" -o -name "*.zip" \) -o -type d -name "*.framework" \) \
+                2>/dev/null | sort
+            )
+          fi
+          if [ "${#IOS_OUTPUTS[@]}" -eq 0 ]; then
+            echo "WARNING: No iOS MediaPipe framework/archive outputs found under mediapipe/bazel-bin"
+            find mediapipe/bazel-bin -maxdepth 6 -type f | sort | head -200
+          else
+            printf '%s\n' "${IOS_OUTPUTS[@]}"
+            for output in "${IOS_OUTPUTS[@]}"; do
+              cp -a "${output}" "${PKG_DIR}/ios/"
+            done
+          fi
           cp -a /Users/runner/opencv_lite_ios/xcframework_inputs "${PKG_DIR}/opencv_lite/"
 
           (
