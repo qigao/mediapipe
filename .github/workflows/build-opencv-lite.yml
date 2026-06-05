@@ -1,0 +1,449 @@
+name: Build opencv_lite Multi-Platform
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  OPENCV_LITE_REF: "v4.13"
+
+jobs:
+  linux:
+    name: Build opencv_lite (Linux x86_64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      ORT_VERSION: "1.18.1"
+      OPENCV_INSTALL_PREFIX: "/usr/local"
+    steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential cmake ninja-build git curl wget unzip pkg-config \
+            python3 python3-dev python3-pip libgtk-3-dev libglib2.0-dev \
+            libjpeg-dev libpng-dev libtiff-dev libzstd-dev zlib1g-dev \
+            ffmpeg libavcodec-dev libavformat-dev libswscale-dev
+
+      - name: Download ONNXRuntime
+        run: |
+          ORT_ARCHIVE="onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_ARCHIVE}"
+          wget -q "${ORT_URL}" -O "/tmp/${ORT_ARCHIVE}"
+          mkdir -p /home/runner/onnxruntime
+          tar -xzf "/tmp/${ORT_ARCHIVE}" -C /home/runner/onnxruntime --strip-components=1
+          echo "ORT_SDK=/home/runner/onnxruntime" >> $GITHUB_ENV
+
+      - name: Cache opencv_lite build
+        id: cache-opencv-lite-linux
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/libopencv_*.so*
+            /usr/local/include/opencv2
+            /usr/local/include/opencv4/opencv2
+          key: opencv-lite-linux-${{ env.OPENCV_LITE_REF }}-ort${{ env.ORT_VERSION }}-v3
+
+      - name: Clone opencv_lite
+        if: steps.cache-opencv-lite-linux.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "${OPENCV_LITE_REF}" https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
+
+      - name: Build and install opencv_lite
+        if: steps.cache-opencv-lite-linux.outputs.cache-hit != 'true'
+        run: |
+          cmake \
+            -S /tmp/opencv_lite \
+            -B /tmp/opencv_lite/build \
+            -G Ninja \
+            -D CMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_INSTALL_PREFIX="${OPENCV_INSTALL_PREFIX}" \
+            -D ORT_SDK="${ORT_SDK}" \
+            -D BUILD_SHARED_LIBS=ON \
+            -D BUILD_LIST=core,imgproc,imgcodecs,dnn,video,highgui \
+            -D BUILD_opencv_highgui=ON \
+            -D BUILD_TESTS=OFF \
+            -D BUILD_EXAMPLES=OFF \
+            -D BUILD_PERF_TESTS=OFF \
+            -D BUILD_JAVA=OFF \
+            -D BUILD_opencv_java=OFF \
+            -D BUILD_FAT_JAVA_LIB=OFF
+          ninja -C /tmp/opencv_lite/build -j$(nproc)
+          sudo ninja -C /tmp/opencv_lite/build install
+          sudo ldconfig
+
+      - name: Package opencv_lite (Linux)
+        run: |
+          VERSION="$(date +%Y%m%d)-${GITHUB_SHA::7}"
+          PKG_NAME="opencv_lite-linux-x86_64-${VERSION}"
+          PKG_DIR="/tmp/${PKG_NAME}"
+          mkdir -p "${PKG_DIR}/lib" "${PKG_DIR}/include"
+          find /usr/local/lib -maxdepth 1 -name "libopencv_*.so*" -exec cp -P {} "${PKG_DIR}/lib/" \;
+          cp -P /home/runner/onnxruntime/lib/libonnxruntime*.so* "${PKG_DIR}/lib/" 2>/dev/null || true
+          if [ -d "/usr/local/include/opencv4/opencv2" ]; then
+            cp -r /usr/local/include/opencv4/opencv2 "${PKG_DIR}/include/"
+          elif [ -d "/usr/local/include/opencv2" ]; then
+            cp -r /usr/local/include/opencv2 "${PKG_DIR}/include/"
+          fi
+          cat > "${PKG_DIR}/README.txt" <<EOF
+          opencv_lite -- Linux x86_64
+          Built:    $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Commit:   ${GITHUB_SHA}
+          Ref:      ${GITHUB_REF}
+          ONNXRuntime version: ${ORT_VERSION}
+          EOF
+          tar -czf "/tmp/${PKG_NAME}.tar.gz" -C /tmp "${PKG_NAME}"
+          echo "OPENCV_PKG_NAME=${PKG_NAME}" >> $GITHUB_ENV
+
+      - name: Upload opencv_lite Linux package
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OPENCV_PKG_NAME }}
+          path: /tmp/${{ env.OPENCV_PKG_NAME }}.tar.gz
+          retention-days: 30
+          if-no-files-found: error
+
+  windows:
+    name: Build opencv_lite (Windows x64)
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      ORT_VERSION: "1.18.1"
+      OPENCV_INSTALL_PREFIX: "C:/opencv_lite_install"
+    steps:
+      - name: Install build tools
+        shell: powershell
+        run: |
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          choco install ninja -y
+          choco install wget -y
+
+      - name: Download ONNXRuntime (Windows)
+        shell: powershell
+        run: |
+          $archive = "onnxruntime-win-x64-$env:ORT_VERSION.zip"
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$env:ORT_VERSION/$archive"
+          Invoke-WebRequest -Uri $url -OutFile "C:\$archive"
+          Expand-Archive -Path "C:\$archive" -DestinationPath "C:\onnxruntime" -Force
+          $inner = Get-ChildItem "C:\onnxruntime" | Select-Object -First 1
+          Move-Item "$($inner.FullName)\*" "C:\onnxruntime\" -Force
+          echo "ORT_SDK=C:\onnxruntime" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Cache opencv_lite (Windows)
+        id: cache-opencv-lite-win
+        uses: actions/cache@v4
+        with:
+          path: C:/opencv_lite_install
+          key: opencv-lite-windows-${{ env.OPENCV_LITE_REF }}-ort${{ env.ORT_VERSION }}-v3
+
+      - name: Clone opencv_lite
+        if: steps.cache-opencv-lite-win.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch %OPENCV_LITE_REF% https://github.com/zihaomu/opencv_lite.git C:\opencv_lite_src
+        shell: cmd
+
+      - name: Build opencv_lite (MSVC)
+        if: steps.cache-opencv-lite-win.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          function Invoke-Checked {
+            param([Parameter(Mandatory=$true)][scriptblock]$Command)
+            & $Command
+            if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE" }
+          }
+          New-Item -ItemType Directory -Force -Path "C:\opencv_lite_src\build"
+          Invoke-Checked {
+            cmake -S C:\opencv_lite_src -B C:\opencv_lite_src\build `
+              -G "Visual Studio 17 2022" -A x64 `
+              "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" `
+              -DCMAKE_BUILD_TYPE=Release `
+              -DCMAKE_INSTALL_PREFIX="$env:OPENCV_INSTALL_PREFIX" `
+              -DORT_SDK="$env:ORT_SDK" `
+              -DBUILD_SHARED_LIBS=ON `
+              "-DBUILD_LIST=core,imgproc,imgcodecs,dnn,video,highgui" `
+              -DBUILD_TESTS=OFF `
+              -DBUILD_EXAMPLES=OFF `
+              -DBUILD_JAVA=OFF `
+              -DBUILD_opencv_java=OFF `
+              -DBUILD_FAT_JAVA_LIB=OFF
+          }
+          Invoke-Checked { cmake --build C:\opencv_lite_src\build --config Release -j $env:NUMBER_OF_PROCESSORS }
+          Invoke-Checked { cmake --install C:\opencv_lite_src\build --config Release }
+
+      - name: Package opencv_lite (Windows)
+        shell: powershell
+        run: |
+          $version = (Get-Date -Format 'yyyyMMdd') + '-' + $env:GITHUB_SHA.Substring(0, 7)
+          $pkgName = "opencv_lite-windows-x64-$version"
+          $pkgDir = "C:\pkg\$pkgName"
+          New-Item -ItemType Directory -Force -Path "$pkgDir\bin", "$pkgDir\lib", "$pkgDir\include"
+          foreach ($d in @("$env:OPENCV_INSTALL_PREFIX\x64\vc17\bin", "$env:OPENCV_INSTALL_PREFIX\bin")) {
+            if (Test-Path $d) { Copy-Item "$d\opencv_*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue }
+          }
+          foreach ($d in @("$env:OPENCV_INSTALL_PREFIX\x64\vc17\lib", "$env:OPENCV_INSTALL_PREFIX\lib")) {
+            if (Test-Path $d) { Copy-Item "$d\opencv_*.lib" "$pkgDir\lib\" -ErrorAction SilentlyContinue }
+          }
+          Copy-Item "C:\onnxruntime\lib\onnxruntime*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue
+          if (Test-Path "$env:OPENCV_INSTALL_PREFIX\include\opencv2") {
+            Copy-Item -Recurse "$env:OPENCV_INSTALL_PREFIX\include\opencv2" "$pkgDir\include\" -ErrorAction SilentlyContinue
+          }
+          @"
+          opencv_lite -- Windows x64
+          Built:    $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss UTC'))
+          Commit:   $env:GITHUB_SHA
+          Ref:      $env:GITHUB_REF
+          ONNXRuntime version: $env:ORT_VERSION
+          "@ | Out-File -FilePath "$pkgDir\README.txt" -Encoding UTF8
+          Compress-Archive -Path "C:\pkg\$pkgName" -DestinationPath "C:\pkg\$pkgName.zip"
+          "OPENCV_PKG_NAME=$pkgName" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload opencv_lite Windows package
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OPENCV_PKG_NAME }}
+          path: C:\pkg\${{ env.OPENCV_PKG_NAME }}.zip
+          retention-days: 30
+          if-no-files-found: error
+
+  android:
+    name: Build opencv_lite (Android ${{ matrix.abi }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64]
+    env:
+      ORT_VERSION: "1.18.0"
+      NDK_VERSION: "r26d"
+      NDK_INSTALL_PATH: "/home/runner/android-ndk"
+      ANDROID_API_LEVEL: "24"
+      ANDROID_COMPILE_SDK_LEVEL: "34"
+    steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential cmake ninja-build git curl wget unzip python3 python3-pip
+
+      - name: Install Android NDK
+        run: |
+          NDK_ARCHIVE="android-ndk-${NDK_VERSION}-linux.zip"
+          NDK_URL="https://dl.google.com/android/repository/${NDK_ARCHIVE}"
+          wget -q "${NDK_URL}" -O "/tmp/${NDK_ARCHIVE}"
+          mkdir -p "${NDK_INSTALL_PATH}"
+          unzip -q "/tmp/${NDK_ARCHIVE}" -d /tmp/ndk_extracted
+          mv "/tmp/ndk_extracted/android-ndk-${NDK_VERSION}"/* "${NDK_INSTALL_PATH}/"
+          echo "ANDROID_NDK_HOME=${NDK_INSTALL_PATH}" >> $GITHUB_ENV
+          echo "${NDK_INSTALL_PATH}" >> $GITHUB_PATH
+
+      - name: Download ONNXRuntime (Android)
+        run: |
+          set -euxo pipefail
+          ORT_AAR="onnxruntime-android-${ORT_VERSION}.aar"
+          ORT_URL="https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/${ORT_VERSION}/${ORT_AAR}"
+          mkdir -p /home/runner/onnxruntime-android
+          curl -fsSL "${ORT_URL}" -o "/tmp/${ORT_AAR}"
+          unzip -q "/tmp/${ORT_AAR}" -d /home/runner/onnxruntime-android/aar
+
+      - name: Cache opencv_lite (Android ${{ matrix.abi }})
+        id: cache-opencv-lite-android
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/opencv_lite_android/${{ matrix.abi }}
+          key: opencv-lite-android-${{ matrix.abi }}-${{ env.OPENCV_LITE_REF }}-ndk${{ env.NDK_VERSION }}-ort${{ env.ORT_VERSION }}-v1
+
+      - name: Clone opencv_lite
+        if: steps.cache-opencv-lite-android.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "${OPENCV_LITE_REF}" https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
+
+      - name: Cross-compile opencv_lite for Android (${{ matrix.abi }})
+        if: steps.cache-opencv-lite-android.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          ABI="${{ matrix.abi }}"
+          TOOLCHAIN="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake"
+          INSTALL_DIR="/home/runner/opencv_lite_android/${ABI}"
+          mkdir -p /tmp/opencv_lite_build_${ABI}
+          case "$ABI" in
+            arm64-v8a)   ORT_LIB_SUBDIR="arm64-v8a" ;;
+            armeabi-v7a) ORT_LIB_SUBDIR="armeabi-v7a" ;;
+            x86_64)      ORT_LIB_SUBDIR="x86_64" ;;
+            x86)         ORT_LIB_SUBDIR="x86" ;;
+          esac
+          ORT_ANDROID_LIB_DIR="/home/runner/onnxruntime-android/aar/jni/${ORT_LIB_SUBDIR}"
+          ORT_SDK="/home/runner/onnxruntime-android/sdk/${ABI}"
+          mkdir -p "${ORT_SDK}/include/onnxruntime" "${ORT_SDK}/lib"
+          cp -R /home/runner/onnxruntime-android/aar/headers/. "${ORT_SDK}/include/"
+          cp -R /home/runner/onnxruntime-android/aar/headers/. "${ORT_SDK}/include/onnxruntime/"
+          cp "${ORT_ANDROID_LIB_DIR}/libonnxruntime.so" "${ORT_SDK}/lib/"
+          cmake \
+            -S /tmp/opencv_lite \
+            -B /tmp/opencv_lite_build_${ABI} \
+            -G Ninja \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}" \
+            -DANDROID_ABI="${ABI}" \
+            -DANDROID_PLATFORM="android-${ANDROID_API_LEVEL}" \
+            -DANDROID_STL=c++_shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${INSTALL_DIR}" \
+            -DORT_SDK="${ORT_SDK}" \
+            -DONNXRT_ROOT_DIR="${ORT_SDK}" \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_LIST=core,imgproc,dnn,video \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_ANDROID_PROJECTS=OFF \
+            -DBUILD_ANDROID_EXAMPLES=OFF \
+            -DINSTALL_ANDROID_EXAMPLES=OFF \
+            -DBUILD_JAVA=OFF \
+            -DBUILD_opencv_java=OFF \
+            -DBUILD_FAT_JAVA_LIB=OFF \
+            -DBUILD_opencv_highgui=OFF
+          ninja -C /tmp/opencv_lite_build_${ABI} -j$(nproc)
+          ninja -C /tmp/opencv_lite_build_${ABI} install
+          cp "${ORT_SDK}/lib/libonnxruntime.so" "${INSTALL_DIR}/lib/"
+
+  ios:
+    name: Build opencv_lite (iOS)
+    runs-on: macos-latest
+    timeout-minutes: 180
+    env:
+      ORT_VERSION: "1.18.0"
+      IOS_DEPLOYMENT_TARGET: "15.0"
+    steps:
+      - name: Show Xcode Version
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install build dependencies (Homebrew)
+        run: |
+          brew update
+          brew install cmake ninja git wget python3
+
+      - name: Download ONNXRuntime (iOS XCFramework)
+        run: |
+          set -euxo pipefail
+          ORT_URL="https://download.onnxruntime.ai/pod-archive-onnxruntime-c-${ORT_VERSION}.zip"
+          curl -fL "${ORT_URL}" -o /tmp/ort_ios.zip
+          mkdir -p /Users/runner/onnxruntime_ios
+          unzip -q /tmp/ort_ios.zip -d /Users/runner/onnxruntime_ios
+          mkdir -p /Users/runner/onnxruntime_ios_sdk/device/include/onnxruntime /Users/runner/onnxruntime_ios_sdk/device/lib
+          mkdir -p /Users/runner/onnxruntime_ios_sdk/simulator/include/onnxruntime /Users/runner/onnxruntime_ios_sdk/simulator/lib
+          cp -R /Users/runner/onnxruntime_ios/Headers/. /Users/runner/onnxruntime_ios_sdk/device/include/
+          cp -R /Users/runner/onnxruntime_ios/Headers/. /Users/runner/onnxruntime_ios_sdk/device/include/onnxruntime/
+          cp -R /Users/runner/onnxruntime_ios/Headers/. /Users/runner/onnxruntime_ios_sdk/simulator/include/
+          cp -R /Users/runner/onnxruntime_ios/Headers/. /Users/runner/onnxruntime_ios_sdk/simulator/include/onnxruntime/
+          cp /Users/runner/onnxruntime_ios/onnxruntime.xcframework/ios-arm64/onnxruntime.framework/onnxruntime /Users/runner/onnxruntime_ios_sdk/device/lib/libonnxruntime.a
+          cp /Users/runner/onnxruntime_ios/onnxruntime.xcframework/ios-arm64_x86_64-simulator/onnxruntime.framework/onnxruntime /Users/runner/onnxruntime_ios_sdk/simulator/lib/libonnxruntime.a
+          echo "ORT_IOS_DEVICE_SDK=/Users/runner/onnxruntime_ios_sdk/device" >> $GITHUB_ENV
+          echo "ORT_IOS_SIMULATOR_SDK=/Users/runner/onnxruntime_ios_sdk/simulator" >> $GITHUB_ENV
+
+      - name: Cache opencv_lite (iOS)
+        id: cache-opencv-lite-ios
+        uses: actions/cache@v4
+        with:
+          path: /Users/runner/opencv_lite_ios
+          key: opencv-lite-ios-${{ env.OPENCV_LITE_REF }}-ort${{ env.ORT_VERSION }}-ios${{ env.IOS_DEPLOYMENT_TARGET }}-v1
+
+      - name: Clone opencv_lite
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "${OPENCV_LITE_REF}" https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
+
+      - name: Build opencv_lite for iOS arm64 (device)
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          export IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}"
+          cmake \
+            -S /tmp/opencv_lite \
+            -B /tmp/opencv_lite_ios_arm64 \
+            -G Xcode \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneOS_Xcode.cmake \
+            -DIOS_ARCH=arm64 \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_XCODE_ATTRIBUTE_ARCHS=arm64 \
+            -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
+            -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+            -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="" \
+            -DCMAKE_CONFIGURATION_TYPES=Release \
+            -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/arm64" \
+            -DORT_SDK="${ORT_IOS_DEVICE_SDK}" \
+            -DONNXRT_ROOT_DIR="${ORT_IOS_DEVICE_SDK}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_LIST=core,imgproc,dnn,video \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_JAVA=OFF \
+            -DBUILD_opencv_java=OFF \
+            -DBUILD_FAT_JAVA_LIB=OFF \
+            -DBUILD_opencv_highgui=OFF
+          cmake --build /tmp/opencv_lite_ios_arm64 --config Release --parallel $(sysctl -n hw.logicalcpu) -- ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          cmake --install /tmp/opencv_lite_ios_arm64 --config Release
+
+      - name: Build opencv_lite for iOS Simulator (arm64 + x86_64)
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          export IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}"
+          for SIM_ARCH in arm64 x86_64; do
+            cmake \
+              -S /tmp/opencv_lite \
+              -B "/tmp/opencv_lite_sim_${SIM_ARCH}" \
+              -G Xcode \
+              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+              -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneSimulator_Xcode.cmake \
+              -DIOS_ARCH="${SIM_ARCH}" \
+              -DCMAKE_OSX_ARCHITECTURES="${SIM_ARCH}" \
+              -DCMAKE_XCODE_ATTRIBUTE_ARCHS="${SIM_ARCH}" \
+              -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
+              -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+              -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+              -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+              -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+              -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+              -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="" \
+              -DCMAKE_CONFIGURATION_TYPES=Release \
+              -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/sim_${SIM_ARCH}" \
+              -DORT_SDK="${ORT_IOS_SIMULATOR_SDK}" \
+              -DONNXRT_ROOT_DIR="${ORT_IOS_SIMULATOR_SDK}" \
+              -DBUILD_SHARED_LIBS=OFF \
+              -DBUILD_LIST=core,imgproc,dnn,video \
+              -DBUILD_TESTS=OFF \
+              -DBUILD_EXAMPLES=OFF \
+              -DBUILD_JAVA=OFF \
+              -DBUILD_opencv_java=OFF \
+              -DBUILD_FAT_JAVA_LIB=OFF \
+              -DBUILD_opencv_highgui=OFF
+            cmake --build "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release --parallel $(sysctl -n hw.logicalcpu) -- ARCHS="${SIM_ARCH}" ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+            cmake --install "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release
+          done
+
+      - name: Create fat simulator slice (lipo) and XCFramework inputs
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /Users/runner/opencv_lite_ios/xcframework_inputs/device/lib /Users/runner/opencv_lite_ios/xcframework_inputs/simulator/lib
+          cp -r /Users/runner/opencv_lite_ios/arm64/lib/libopencv_*.a /Users/runner/opencv_lite_ios/xcframework_inputs/device/lib/
+          for LIB in $(ls /Users/runner/opencv_lite_ios/sim_arm64/lib/libopencv_*.a); do
+            LIBNAME=$(basename ${LIB})
+            SIM_X86="/Users/runner/opencv_lite_ios/sim_x86_64/lib/${LIBNAME}"
+            if [ -f "${SIM_X86}" ]; then
+              lipo -create "${LIB}" "${SIM_X86}" -output "/Users/runner/opencv_lite_ios/xcframework_inputs/simulator/lib/${LIBNAME}"
+            else
+              cp "${LIB}" "/Users/runner/opencv_lite_ios/xcframework_inputs/simulator/lib/${LIBNAME}"
+            fi
+          done
+          cp -r /Users/runner/opencv_lite_ios/arm64/include /Users/runner/opencv_lite_ios/xcframework_inputs/device/include
+          cp -r /Users/runner/opencv_lite_ios/arm64/include /Users/runner/opencv_lite_ios/xcframework_inputs/simulator/include

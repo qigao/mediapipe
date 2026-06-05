@@ -1,0 +1,1526 @@
+name: Build MediaPipe Multi-Platform
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Build MediaPipe + opencv_lite
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    env:
+      ORT_VERSION: "1.18.1"
+      OPENCV_LITE_REF: "v4.13"
+      OPENCV_INSTALL_PREFIX: "/usr/local"
+      BAZEL_VERSION: "6.4.0"
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Check out google-ai-edge/mediapipe
+      # -----------------------------------------------------------------------
+      - name: Checkout MediaPipe
+        uses: actions/checkout@v4
+        with:
+          repository: google-ai-edge/mediapipe
+          ref: master
+          path: mediapipe
+          submodules: recursive
+
+      # -----------------------------------------------------------------------
+      # 2. Install system build dependencies
+      # -----------------------------------------------------------------------
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            git \
+            curl \
+            wget \
+            unzip \
+            pkg-config \
+            python3 \
+            python3-dev \
+            python3-pip \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            libjpeg-dev \
+            libpng-dev \
+            libtiff-dev \
+            libzstd-dev \
+            zlib1g-dev \
+            ffmpeg \
+            libavcodec-dev \
+            libavformat-dev \
+            libswscale-dev
+
+      # -----------------------------------------------------------------------
+      # 3. Set up Bazelisk
+      # -----------------------------------------------------------------------
+      - name: Set up Bazelisk
+        run: |
+          curl -fsSL \
+            https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
+            | sudo tee /usr/local/bin/bazel > /dev/null
+          sudo chmod +x /usr/local/bin/bazel
+          bazel version
+
+      # -----------------------------------------------------------------------
+      # 4. Cache Bazel build artifacts
+      # -----------------------------------------------------------------------
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+          key: bazel-${{ runner.os }}-${{ env.BAZEL_VERSION }}-${{ hashFiles('mediapipe/WORKSPACE') }}
+          restore-keys: |
+            bazel-${{ runner.os }}-${{ env.BAZEL_VERSION }}-
+
+      # -----------------------------------------------------------------------
+      # 5. Download and extract ONNXRuntime (required by opencv_lite)
+      # -----------------------------------------------------------------------
+      - name: Download ONNXRuntime
+        run: |
+          ORT_ARCHIVE="onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_ARCHIVE}"
+          echo "Downloading ONNXRuntime v${ORT_VERSION} from ${ORT_URL}"
+          wget -q "${ORT_URL}" -O "/tmp/${ORT_ARCHIVE}"
+          mkdir -p /home/runner/onnxruntime
+          tar -xzf "/tmp/${ORT_ARCHIVE}" -C /home/runner/onnxruntime --strip-components=1
+          echo "ORT_SDK=/home/runner/onnxruntime" >> $GITHUB_ENV
+          echo "ONNXRuntime installed to /home/runner/onnxruntime"
+          ls /home/runner/onnxruntime
+
+      # -----------------------------------------------------------------------
+      # 6. Cache opencv_lite build
+      # -----------------------------------------------------------------------
+      - name: Cache opencv_lite build
+        id: cache-opencv-lite
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/libopencv_*.so*
+          key: opencv-lite-${{ runner.os }}-${{ env.OPENCV_LITE_REF }}-ort${{ env.ORT_VERSION }}-v2
+
+      # -----------------------------------------------------------------------
+      # 7. Clone and build opencv_lite
+      # -----------------------------------------------------------------------
+      - name: Clone opencv_lite
+        if: steps.cache-opencv-lite.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "${OPENCV_LITE_REF}" https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
+
+      - name: Build and install opencv_lite
+        if: steps.cache-opencv-lite.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/opencv_lite/build
+          cd /tmp/opencv_lite/build
+
+          cmake .. \
+            -G Ninja \
+            -D CMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_INSTALL_PREFIX="${OPENCV_INSTALL_PREFIX}" \
+            -D ORT_SDK="${ORT_SDK}" \
+            -D BUILD_SHARED_LIBS=ON \
+            -D BUILD_LIST=core,imgproc,imgcodecs,dnn,video,highgui \
+            -D BUILD_opencv_highgui=ON \
+            -D BUILD_TESTS=OFF \
+            -D BUILD_EXAMPLES=OFF \
+            -D BUILD_PERF_TESTS=OFF \
+            -D BUILD_JAVA=OFF \
+            -D BUILD_opencv_java=OFF \
+            -D BUILD_FAT_JAVA_LIB=OFF
+
+          ninja -j$(nproc)
+          sudo ninja install
+          sudo ldconfig
+
+          echo "opencv_lite installed. Shared libraries found:"
+          find ${OPENCV_INSTALL_PREFIX}/lib -name "libopencv_*.so" | sort
+
+      # -----------------------------------------------------------------------
+      # 8. Discover which opencv_lite libraries were built
+      # -----------------------------------------------------------------------
+      - name: Discover opencv_lite libraries
+        run: |
+          echo "=== opencv_lite shared libraries ==="
+          # Find all libopencv_<module>.so files (non-versioned symlinks)
+          OPENCV_LIBS=$(find "${OPENCV_INSTALL_PREFIX}/lib" \
+            -name "libopencv_*.so" -not -name "libopencv_*.so.*" \
+            | sort)
+          echo "${OPENCV_LIBS}"
+
+          # Extract module names for later use
+          MODULES=$(echo "${OPENCV_LIBS}" | \
+            sed 's|.*/libopencv_||;s|\.so$||' | \
+            tr '\n' ' ')
+          echo "Available modules: ${MODULES}"
+          echo "OPENCV_MODULES=${MODULES}" >> $GITHUB_ENV
+
+          # Find OpenCV headers
+          OPENCV_INCLUDE=$(find "${OPENCV_INSTALL_PREFIX}/include" \
+            -name "opencv2" -type d | head -1 | xargs dirname)
+          echo "OPENCV_INCLUDE=${OPENCV_INCLUDE}" >> $GITHUB_ENV
+          echo "OpenCV include root: ${OPENCV_INCLUDE}"
+
+      # -----------------------------------------------------------------------
+      # 9. Patch MediaPipe WORKSPACE to use opencv_lite install
+      # -----------------------------------------------------------------------
+      - name: Patch MediaPipe WORKSPACE
+        working-directory: mediapipe
+        run: |
+          # Replace the linux_opencv new_local_repository path
+          # MediaPipe's WORKSPACE has an entry like:
+          #   new_local_repository(name = "linux_opencv", path = "/usr", ...)
+          # We update the path to our opencv_lite install prefix.
+          python3 - <<'EOF'
+          import re, pathlib
+
+          ws = pathlib.Path("WORKSPACE")
+          content = ws.read_text()
+
+          # Pattern: new_local_repository block for linux_opencv
+          pattern = r'(new_local_repository\s*\(\s*name\s*=\s*"linux_opencv"[^)]*path\s*=\s*")[^"]*(")'
+          replacement = r'\g<1>/usr/local\g<2>'
+          new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+
+          if new_content == content:
+              print("WARNING: Could not find linux_opencv path to patch in WORKSPACE.")
+              print("Attempting fallback: searching for existing path patterns...")
+              # Fallback: print the relevant block for debugging
+              m = re.search(r'new_local_repository\s*\(\s*name\s*=\s*"linux_opencv"[^)]+\)', content, re.DOTALL)
+              if m:
+                  print("Found block:\n", m.group(0))
+              else:
+                  print("Block not found at all — please check WORKSPACE manually.")
+          else:
+              ws.write_text(new_content)
+              print("WORKSPACE patched: linux_opencv path -> /usr/local")
+
+          EOF
+
+      # -----------------------------------------------------------------------
+      # 10. Patch third_party/opencv_linux.BUILD to use opencv_lite modules
+      # -----------------------------------------------------------------------
+      - name: Patch third_party/opencv_linux.BUILD
+        working-directory: mediapipe
+        run: |
+          python3 - <<'PYEOF'
+          import pathlib, os, glob
+
+          install_prefix = "/usr/local"
+          lib_dir = os.path.join(install_prefix, "lib")
+
+          # Discover all libopencv_*.so files (non-versioned symlinks)
+          so_files = sorted(glob.glob(os.path.join(lib_dir, "libopencv_*.so")))
+          # Also search in multiarch lib dir
+          so_files += sorted(glob.glob(os.path.join(lib_dir, "x86_64-linux-gnu", "libopencv_*.so")))
+
+          modules = []
+          for so in so_files:
+              base = os.path.basename(so)
+              # Strip libopencv_ prefix and .so suffix
+              mod = base[len("libopencv_"):-len(".so")]
+              if mod not in modules:
+                  modules.append(mod)
+
+          print(f"Available opencv_lite modules: {modules}")
+
+          # Build linkopts list
+          linkopts = [f'        "-l:libopencv_{m}.so",' for m in modules]
+          linkopts_str = "\n".join(linkopts)
+
+          # Determine header include paths
+          include_dirs = []
+          for candidate in [
+              os.path.join(install_prefix, "include", "opencv4"),
+              os.path.join(install_prefix, "include"),
+          ]:
+              if os.path.isdir(candidate):
+                  include_dirs.append(candidate)
+                  break
+
+          if not include_dirs:
+              include_dirs = [os.path.join(install_prefix, "include", "opencv4")]
+
+          include_dir = include_dirs[0]
+          # The relative include path used in BUILD files
+          # (relative to the new_local_repository root = /usr/local)
+          rel_include = os.path.relpath(include_dir, install_prefix)
+
+          print(f"Include dir: {include_dir}, relative: {rel_include}")
+
+          build_content = f'''# Auto-generated by build-mediapipe-opencv-lite.yml
+          # opencv_lite installed to {install_prefix}
+          # Modules detected: {", ".join(modules)}
+
+          cc_library(
+              name = "opencv",
+              hdrs = glob([
+                  "{rel_include}/opencv2/**/*.h",
+                  "{rel_include}/opencv2/**/*.hpp",
+              ]),
+              includes = [
+                  "{rel_include}",
+              ],
+              linkopts = [
+          {linkopts_str}
+              ],
+              visibility = ["//visibility:public"],
+          )
+          '''
+
+          # Dedent since we used triple-quoted f-string with extra indent
+          import textwrap
+          build_content = textwrap.dedent(build_content)
+
+          build_file = pathlib.Path("third_party/opencv_linux.BUILD")
+          build_file.write_text(build_content)
+          print("=== Written third_party/opencv_linux.BUILD ===")
+          print(build_content)
+
+          PYEOF
+
+      # -----------------------------------------------------------------------
+      # 11. Show patched files for debugging
+      # -----------------------------------------------------------------------
+      - name: Show patched WORKSPACE (linux_opencv block)
+        working-directory: mediapipe
+        run: |
+          echo "=== linux_opencv block in WORKSPACE ==="
+          grep -A 10 '"linux_opencv"' WORKSPACE || true
+
+      - name: Show patched opencv_linux.BUILD
+        working-directory: mediapipe
+        run: cat mediapipe/third_party/opencv_linux.BUILD || cat third_party/opencv_linux.BUILD
+
+      # -----------------------------------------------------------------------
+      # 12. Install Python dependencies required by MediaPipe
+      # -----------------------------------------------------------------------
+      - name: Install Python deps for MediaPipe
+        run: |
+          pip3 install --upgrade pip
+          pip3 install numpy absl-py
+
+      # -----------------------------------------------------------------------
+      # 13. Build MediaPipe hello_world example using opencv_lite
+      # -----------------------------------------------------------------------
+      - name: Build MediaPipe hello_world (desktop)
+        working-directory: mediapipe
+        run: |
+          bazel build \
+            -c opt \
+            --define MEDIAPIPE_DISABLE_GPU=1 \
+            --action_env ORT_SDK="${ORT_SDK}" \
+            //mediapipe/examples/desktop/hello_world:hello_world
+
+      # -----------------------------------------------------------------------
+      # 14. (Optional) Run the hello_world example
+      # -----------------------------------------------------------------------
+      - name: Run MediaPipe hello_world
+        working-directory: mediapipe
+        run: |
+          GLOG_logtostderr=1 \
+            bazel-bin/mediapipe/examples/desktop/hello_world/hello_world
+
+      # -----------------------------------------------------------------------
+      # 15. Package: bundle opencv_lite + mediapipe into a distributable tarball
+      # -----------------------------------------------------------------------
+      - name: Create distributable package (Linux)
+        run: |
+          VERSION="$(date +%Y%m%d)-${GITHUB_SHA::7}"
+          PKG_NAME="mediapipe-opencv_lite-linux-x86_64-${VERSION}"
+          PKG_DIR="/tmp/${PKG_NAME}"
+
+          mkdir -p "${PKG_DIR}/bin"
+          mkdir -p "${PKG_DIR}/lib"
+          mkdir -p "${PKG_DIR}/include"
+
+          # --- opencv_lite shared libraries ---
+          echo "Copying opencv_lite shared libraries..."
+          find /usr/local/lib -maxdepth 1 -name "libopencv_*.so*" \
+            -exec cp -P {} "${PKG_DIR}/lib/" \;
+
+          # --- opencv_lite ONNX Runtime dependency ---
+          cp -P /home/runner/onnxruntime/lib/libonnxruntime*.so* "${PKG_DIR}/lib/" 2>/dev/null || true
+
+          # --- opencv_lite headers ---
+          echo "Copying opencv_lite headers..."
+          if [ -d "/usr/local/include/opencv4" ]; then
+            cp -r /usr/local/include/opencv4/opencv2 "${PKG_DIR}/include/"
+          elif [ -d "/usr/local/include/opencv2" ]; then
+            cp -r /usr/local/include/opencv2 "${PKG_DIR}/include/"
+          fi
+
+          # --- MediaPipe hello_world binary ---
+          echo "Copying MediaPipe hello_world binary..."
+          cp mediapipe/bazel-bin/mediapipe/examples/desktop/hello_world/hello_world \
+            "${PKG_DIR}/bin/hello_world"
+          chmod +x "${PKG_DIR}/bin/hello_world"
+
+          # --- MediaPipe shared library (if built as .so) ---
+          find mediapipe/bazel-bin -name "libmediapipe*.so" \
+            -exec cp {} "${PKG_DIR}/lib/" \; 2>/dev/null || true
+
+          # --- Metadata ---
+          cat > "${PKG_DIR}/README.txt" <<EOF
+          MediaPipe + opencv_lite — Linux x86_64
+          ======================================
+          Built:    $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Commit:   ${GITHUB_SHA}
+          Ref:      ${GITHUB_REF}
+
+          opencv_lite version: $(git -C /tmp/opencv_lite rev-parse --short HEAD 2>/dev/null || echo 'unknown')
+          ONNXRuntime version: ${ORT_VERSION}
+
+          Contents:
+            bin/   — MediaPipe example binaries
+            lib/   — opencv_lite + ONNXRuntime shared libraries (.so)
+            include/opencv2/ — opencv_lite C++ headers
+
+          Usage (Linux):
+            export LD_LIBRARY_PATH=\$PWD/lib:\$LD_LIBRARY_PATH
+            ./bin/hello_world
+          EOF
+
+          # --- Create tarball ---
+          tar -czf "/tmp/${PKG_NAME}.tar.gz" -C /tmp "${PKG_NAME}"
+          echo "PKG_PATH=/tmp/${PKG_NAME}.tar.gz" >> $GITHUB_ENV
+          echo "PKG_NAME=${PKG_NAME}" >> $GITHUB_ENV
+          echo "Package created: /tmp/${PKG_NAME}.tar.gz"
+          ls -lh "/tmp/${PKG_NAME}.tar.gz"
+
+      # -----------------------------------------------------------------------
+      # 16. Upload the full package as a GitHub artifact
+      # -----------------------------------------------------------------------
+      - name: Upload Linux package artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PKG_NAME }}
+          path: /tmp/${{ env.PKG_NAME }}.tar.gz
+          retention-days: 30
+          if-no-files-found: error
+
+      # -----------------------------------------------------------------------
+      # 17. Create a GitHub Release on version tags (e.g. v1.2.3)
+      # -----------------------------------------------------------------------
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: /tmp/${{ env.PKG_NAME }}.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  windows:
+    name: Build (Windows x64)
+    runs-on: windows-2022
+    timeout-minutes: 180
+
+    env:
+      ORT_VERSION: "1.18.1"
+      OPENCV_LITE_REF: "v4.13"
+      OPENCV_INSTALL_PREFIX: "C:/opencv_lite_install"
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout MediaPipe
+      # -----------------------------------------------------------------------
+      - name: Checkout MediaPipe
+        uses: actions/checkout@v4
+        with:
+          repository: google-ai-edge/mediapipe
+          ref: master
+          path: mediapipe
+          submodules: recursive
+
+      # -----------------------------------------------------------------------
+      # 2. Install MSVC / Visual Studio build tools (already on windows-2022)
+      #    Install cmake, ninja via choco
+      # -----------------------------------------------------------------------
+      - name: Install build tools
+        run: |
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          choco install ninja -y
+          choco install wget -y
+        shell: powershell
+
+      # -----------------------------------------------------------------------
+      # 3. Set up Bazelisk
+      # -----------------------------------------------------------------------
+      - name: Set up Bazelisk
+        run: |
+          $url = "https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-windows-amd64.exe"
+          Invoke-WebRequest -Uri $url -OutFile "C:\bazel.exe"
+          # Add to PATH for subsequent steps
+          echo "C:\" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          C:\bazel.exe version
+        shell: powershell
+
+      # -----------------------------------------------------------------------
+      # 4. Cache Bazel artifacts
+      # -----------------------------------------------------------------------
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bazel
+          key: bazel-windows-${{ hashFiles('mediapipe/WORKSPACE', 'mediapipe/MODULE.bazel') }}
+          restore-keys: bazel-windows-
+
+      # -----------------------------------------------------------------------
+      # 5. Download ONNXRuntime for Windows
+      # -----------------------------------------------------------------------
+      - name: Download ONNXRuntime (Windows)
+        run: |
+          $archive = "onnxruntime-win-x64-$env:ORT_VERSION.zip"
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$env:ORT_VERSION/$archive"
+          Invoke-WebRequest -Uri $url -OutFile "C:\$archive"
+          Expand-Archive -Path "C:\$archive" -DestinationPath "C:\onnxruntime" -Force
+          # Strip top-level directory in archive
+          $inner = Get-ChildItem "C:\onnxruntime" | Select-Object -First 1
+          Move-Item "$($inner.FullName)\*" "C:\onnxruntime\" -Force
+          echo "ORT_SDK=C:\onnxruntime" | Out-File -FilePath $env:GITHUB_ENV -Append
+        shell: powershell
+
+      # -----------------------------------------------------------------------
+      # 6. Cache opencv_lite build
+      # -----------------------------------------------------------------------
+      - name: Cache opencv_lite (Windows)
+        id: cache-opencv-lite-win
+        uses: actions/cache@v4
+        with:
+          path: C:/opencv_lite_install
+          key: opencv-lite-windows-${{ env.OPENCV_LITE_REF }}-ort${{ env.ORT_VERSION }}-v2
+
+      # -----------------------------------------------------------------------
+      # 7. Clone and build opencv_lite (Windows / MSVC)
+      # -----------------------------------------------------------------------
+      - name: Clone opencv_lite
+        if: steps.cache-opencv-lite-win.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch %OPENCV_LITE_REF% https://github.com/zihaomu/opencv_lite.git C:\opencv_lite_src
+        shell: cmd
+
+      - name: Build opencv_lite (MSVC)
+        if: steps.cache-opencv-lite-win.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          function Invoke-Checked {
+            param([Parameter(Mandatory=$true)][scriptblock]$Command)
+            & $Command
+            if ($LASTEXITCODE -ne 0) {
+              throw "Command failed with exit code $LASTEXITCODE"
+            }
+          }
+
+          New-Item -ItemType Directory -Force -Path "C:\opencv_lite_src\build"
+          Invoke-Checked {
+            cmake -S C:\opencv_lite_src -B C:\opencv_lite_src\build `
+              -G "Visual Studio 17 2022" -A x64 `
+              "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" `
+              -DCMAKE_BUILD_TYPE=Release `
+              -DCMAKE_INSTALL_PREFIX="$env:OPENCV_INSTALL_PREFIX" `
+              -DORT_SDK="$env:ORT_SDK" `
+              -DBUILD_SHARED_LIBS=ON `
+              "-DBUILD_LIST=core,imgproc,imgcodecs,dnn,video,highgui" `
+              -DBUILD_TESTS=OFF `
+              -DBUILD_EXAMPLES=OFF `
+              -DBUILD_JAVA=OFF `
+              -DBUILD_opencv_java=OFF `
+              -DBUILD_FAT_JAVA_LIB=OFF
+          }
+          Invoke-Checked {
+            cmake --build C:\opencv_lite_src\build --config Release -j $env:NUMBER_OF_PROCESSORS
+          }
+          Invoke-Checked {
+            cmake --install C:\opencv_lite_src\build --config Release
+          }
+
+      # -----------------------------------------------------------------------
+      # 8. Patch WORKSPACE & opencv_windows.BUILD
+      # -----------------------------------------------------------------------
+      - name: Patch WORKSPACE (Windows path)
+        working-directory: mediapipe
+        shell: python
+        run: |
+          import re, pathlib
+
+          ws = pathlib.Path("WORKSPACE")
+          content = ws.read_text()
+          # Replace windows_opencv path
+          pattern = r'(new_local_repository\s*\(\s*name\s*=\s*"windows_opencv"[^)]*path\s*=\s*")[^"]*(")'
+          replacement = r'\g<1>C:/opencv_lite_install\g<2>'
+          new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+          if new_content == content:
+              print("WARNING: windows_opencv path not found in WORKSPACE")
+          else:
+              ws.write_text(new_content)
+              print("Patched windows_opencv path -> C:/opencv_lite_install")
+
+      - name: Add Bazel zlib dependency
+        working-directory: mediapipe
+        shell: python
+        run: |
+          import pathlib
+
+          path = pathlib.Path("MODULE.bazel")
+          content = path.read_text()
+          dep = 'bazel_dep(name = "zlib", version = "1.3.2")'
+          if dep in content:
+              print("zlib bazel_dep already present")
+          else:
+              anchor = 'bazel_dep(name = "protobuf", repo_name = "com_google_protobuf")\n'
+              if anchor not in content:
+                  raise RuntimeError("Could not find protobuf bazel_dep anchor in MODULE.bazel")
+              path.write_text(content.replace(anchor, anchor + dep + "\n", 1))
+              print("Added Bazel zlib dependency to MODULE.bazel")
+
+      - name: Generate opencv_windows.BUILD
+        working-directory: mediapipe
+        shell: python
+        run: |
+          import pathlib, glob, os
+
+          install = "C:/opencv_lite_install"
+          libs = sorted(glob.glob(os.path.join(install, "x64/vc17/lib/opencv_*.lib")))
+          if not libs:
+              libs = sorted(glob.glob(os.path.join(install, "lib/opencv_*.lib")))
+          if not libs:
+              raise RuntimeError(f"No opencv_lite import libraries found under {install}")
+          if not any("opencv_core" in os.path.basename(l) for l in libs):
+              raise RuntimeError(f"opencv_core import library not found. Found: {libs}")
+
+          print(f"Found libs: {libs}")
+          lib_entries = "\n".join(
+              f'        "{os.path.relpath(l, install).replace(chr(92), "/")},"' for l in libs
+          )
+
+          content = f"""# Auto-generated by build-mediapipe-opencv-lite-windows.yml
+          cc_library(
+              name = "opencv",
+              hdrs = glob([
+                  "include/opencv2/**/*.h",
+                  "include/opencv2/**/*.hpp",
+              ]),
+              includes = ["include"],
+              srcs = [
+          {lib_entries}
+              ],
+              visibility = ["//visibility:public"],
+          )
+          """
+          import textwrap
+          content = textwrap.dedent(content)
+          pathlib.Path("third_party/opencv_windows.BUILD").write_text(content)
+          print("Written third_party/opencv_windows.BUILD")
+
+      - name: Patch MediaPipe MSVC constinit mismatch
+        working-directory: mediapipe
+        shell: python
+        run: |
+          import pathlib
+
+          def patch_once(path, old, new, label):
+              content = path.read_text()
+              if new in content:
+                  print(f"{label} already patched")
+                  return
+              if old not in content:
+                  raise RuntimeError(f"Expected text not found for {label}")
+              path.write_text(content.replace(old, new, 1))
+              print(f"Patched {label}")
+
+          patch_once(
+              pathlib.Path("mediapipe/gpu/gpu_service.cc"),
+              "const GraphService<GpuResources> kGpuService(",
+              "ABSL_CONST_INIT const GraphService<GpuResources> kGpuService(",
+              "mediapipe/gpu/gpu_service.cc kGpuService",
+          )
+          patch_once(
+              pathlib.Path("mediapipe/framework/legacy_calculator_support.cc"),
+              """template <>
+          thread_local CalculatorContext*
+              LegacyCalculatorSupport::Scoped<CalculatorContext>::current_ = nullptr;""",
+              """template <>
+          ABSL_CONST_INIT thread_local CalculatorContext*
+              LegacyCalculatorSupport::Scoped<CalculatorContext>::current_ = nullptr;""",
+              "legacy_calculator_support.cc CalculatorContext current_",
+          )
+          patch_once(
+              pathlib.Path("mediapipe/framework/legacy_calculator_support.cc"),
+              """template <>
+          thread_local CalculatorContract*
+              LegacyCalculatorSupport::Scoped<CalculatorContract>::current_ = nullptr;""",
+              """template <>
+          ABSL_CONST_INIT thread_local CalculatorContract*
+              LegacyCalculatorSupport::Scoped<CalculatorContract>::current_ = nullptr;""",
+              "legacy_calculator_support.cc CalculatorContract current_",
+          )
+
+      - name: Fetch Bazel external repositories
+        working-directory: mediapipe
+        shell: powershell
+        run: |
+          bazel fetch --define protobuf_allow_msvc=true //mediapipe/examples/desktop/hello_world:hello_world
+
+      - name: Patch protobuf MSVC recursive variant
+        working-directory: mediapipe
+        shell: python
+        run: |
+          import pathlib
+          import subprocess
+
+          output_base = pathlib.Path(subprocess.check_output(["bazel", "info", "output_base"], text=True).strip())
+          candidates = sorted(output_base.glob("external/protobuf*"))
+          root = next(
+              (p for p in candidates if (p / "src/google/protobuf/json/internal/untyped_message.h").exists()),
+              None,
+          )
+          if root is None:
+              raise RuntimeError(f"Could not find fetched protobuf repository under {output_base / 'external'}")
+
+          header = root / "src/google/protobuf/json/internal/untyped_message.h"
+          source = root / "src/google/protobuf/json/internal/untyped_message.cc"
+          io_build = root / "src/google/protobuf/io/BUILD.bazel"
+
+          def replace_once(path, old, new):
+              content = path.read_text()
+              if new in content:
+                  return False
+              if old not in content:
+                  raise RuntimeError(f"Expected text not found in {path}: {old}")
+              path.write_text(content.replace(old, new, 1))
+              return True
+
+          changed = False
+          changed |= replace_once(
+              header,
+              "    return std::visit(SizeVisitor{}, it->second);",
+              "    return std::visit(SizeVisitor{}, *it->second);",
+          )
+          changed |= replace_once(
+              header,
+              "    if (auto* val = std::get_if<T>(&it->second)) {",
+              "    if (auto* val = std::get_if<T>(it->second.get())) {",
+          )
+          changed |= replace_once(
+              header,
+              "    } else if (auto* vec = std::get_if<std::vector<T>>(&it->second)) {",
+              "    } else if (auto* vec = std::get_if<std::vector<T>>(it->second.get())) {",
+          )
+          changed |= replace_once(
+              header,
+              "  absl::flat_hash_map<int32_t, Value> fields_;",
+              "  // This mirrors protobuf v32.1 and avoids MSVC eagerly checking\n"
+              "  // std::variant destructibility while UntypedMessage is incomplete.\n"
+              "  absl::flat_hash_map<int32_t, std::unique_ptr<Value>> fields_;",
+          )
+          changed |= replace_once(
+              source,
+              "  auto emplace_result = fields_.try_emplace(number, std::forward<T>(value));\n"
+              "  if (emplace_result.second) {\n"
+              "    return absl::OkStatus();\n"
+              "  }",
+              "  auto emplace_result = fields_.try_emplace(number);\n"
+              "  if (emplace_result.second) {\n"
+              "    emplace_result.first->second =\n"
+              "        std::make_unique<Value>(std::forward<T>(value));\n"
+              "    return absl::OkStatus();\n"
+              "  }",
+          )
+          changed |= replace_once(
+              source,
+              "  Value& slot = emplace_result.first->second;",
+              "  Value& slot = *emplace_result.first->second;",
+          )
+          changed |= replace_once(
+              io_build,
+              '        "//build_defs:config_msvc": [],\n'
+              '        "//conditions:default": ["-DHAVE_ZLIB"],',
+              '        "//build_defs:config_msvc": ["-DHAVE_ZLIB"],\n'
+              '        "//conditions:default": ["-DHAVE_ZLIB"],',
+          )
+          changed |= replace_once(
+              io_build,
+              '        "//build_defs:config_msvc": [],\n'
+              '        "//conditions:default": ["@zlib"],',
+              '        "//build_defs:config_msvc": ["@zlib"],\n'
+              '        "//conditions:default": ["@zlib"],',
+          )
+          print(f"{'Patched' if changed else 'Already patched'} protobuf at {root}")
+
+      # -----------------------------------------------------------------------
+      # 9. Build MediaPipe hello_world (Windows desktop)
+      # -----------------------------------------------------------------------
+      - name: Build MediaPipe (Windows)
+        working-directory: mediapipe
+        shell: powershell
+        run: |
+          $env:ORT_SDK = "C:\onnxruntime"
+          bazel build -c opt `
+            --copt=/Zc:preprocessor `
+            --host_copt=/Zc:preprocessor `
+            --copt=/Iexternal/protobuf~/src `
+            --host_copt=/Iexternal/protobuf~/src `
+            --define MEDIAPIPE_DISABLE_GPU=1 `
+            --define protobuf_allow_msvc=true `
+            //mediapipe/examples/desktop/hello_world:hello_world
+
+      # -----------------------------------------------------------------------
+      # 10. Package: bundle opencv_lite DLLs + mediapipe into a distributable zip
+      # -----------------------------------------------------------------------
+      - name: Create distributable package (Windows)
+        shell: powershell
+        run: |
+          $version = (Get-Date -Format 'yyyyMMdd') + '-' + $env:GITHUB_SHA.Substring(0, 7)
+          $pkgName = "mediapipe-opencv_lite-windows-x64-$version"
+          $pkgDir  = "C:\pkg\$pkgName"
+
+          New-Item -ItemType Directory -Force -Path "$pkgDir\bin"
+          New-Item -ItemType Directory -Force -Path "$pkgDir\lib"
+          New-Item -ItemType Directory -Force -Path "$pkgDir\include"
+
+          # --- opencv_lite DLLs ---
+          Write-Host "Copying opencv_lite DLLs..."
+          $dllDirs = @(
+            "$env:OPENCV_INSTALL_PREFIX\x64\vc17\bin",
+            "$env:OPENCV_INSTALL_PREFIX\bin"
+          )
+          foreach ($d in $dllDirs) {
+            if (Test-Path $d) {
+              Copy-Item "$d\opencv_*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue
+            }
+          }
+
+          # --- opencv_lite import libs ---
+          $libDirs = @(
+            "$env:OPENCV_INSTALL_PREFIX\x64\vc17\lib",
+            "$env:OPENCV_INSTALL_PREFIX\lib"
+          )
+          foreach ($d in $libDirs) {
+            if (Test-Path $d) {
+              Copy-Item "$d\opencv_*.lib" "$pkgDir\lib\" -ErrorAction SilentlyContinue
+            }
+          }
+
+          # --- ONNXRuntime DLL ---
+          Copy-Item "C:\onnxruntime\lib\onnxruntime*.dll" "$pkgDir\bin\" -ErrorAction SilentlyContinue
+
+          # --- opencv_lite headers ---
+          Write-Host "Copying headers..."
+          $includeSrc = "$env:OPENCV_INSTALL_PREFIX\include"
+          if (Test-Path $includeSrc) {
+            Copy-Item -Recurse "$includeSrc\opencv2" "$pkgDir\include\" -ErrorAction SilentlyContinue
+          }
+
+          # --- MediaPipe hello_world binary ---
+          Write-Host "Copying MediaPipe binary..."
+          Copy-Item `
+            "mediapipe\bazel-bin\mediapipe\examples\desktop\hello_world\hello_world.exe" `
+            "$pkgDir\bin\hello_world.exe" -ErrorAction SilentlyContinue
+
+          # --- README ---
+          $readmeContent = @"
+          MediaPipe + opencv_lite -- Windows x64
+          ======================================
+          Built:    $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss UTC'))
+          Commit:   $env:GITHUB_SHA
+          Ref:      $env:GITHUB_REF
+
+          ONNXRuntime version: $env:ORT_VERSION
+
+          Contents:
+            bin\   -- MediaPipe binaries + opencv_lite DLLs + ONNX Runtime DLL
+            lib\   -- opencv_lite import libraries (.lib)
+            include\opencv2\ -- opencv_lite C++ headers
+
+          Usage:
+            Add bin\ to your PATH or place DLLs next to your executable.
+          "@
+          $readmeContent | Out-File -FilePath "$pkgDir\README.txt" -Encoding UTF8
+
+          # --- Zip ---
+          Compress-Archive -Path "C:\pkg\$pkgName" -DestinationPath "C:\pkg\$pkgName.zip"
+          "PKG_NAME=$pkgName" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Package created: C:\pkg\$pkgName.zip"
+          (Get-Item "C:\pkg\$pkgName.zip").Length / 1MB | ForEach-Object { Write-Host "Size: $([math]::Round($_, 2)) MB" }
+
+      # -----------------------------------------------------------------------
+      # 11. Upload the full Windows package as a GitHub artifact
+      # -----------------------------------------------------------------------
+      - name: Upload Windows package artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PKG_NAME }}
+          path: C:\pkg\${{ env.PKG_NAME }}.zip
+          retention-days: 30
+          if-no-files-found: error
+
+      # -----------------------------------------------------------------------
+      # 12. Create a GitHub Release on version tags (e.g. v1.2.3)
+      # -----------------------------------------------------------------------
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: C:\pkg\${{ env.PKG_NAME }}.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  android:
+    name: Build (Android ${{ matrix.abi }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    env:
+      ORT_VERSION: "1.18.0"
+      OPENCV_LITE_REF: "v4.13"
+      NDK_VERSION: "r26d"
+      NDK_INSTALL_PATH: "/home/runner/android-ndk"
+      ANDROID_ABI: "arm64-v8a"
+      ANDROID_API_LEVEL: "24"
+      ANDROID_COMPILE_SDK_LEVEL: "34"
+      OPENCV_ANDROID_INSTALL: "/home/runner/opencv_lite_android"
+
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64]
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout MediaPipe
+      # -----------------------------------------------------------------------
+      - name: Checkout MediaPipe
+        uses: actions/checkout@v4
+        with:
+          repository: google-ai-edge/mediapipe
+          ref: master
+          path: mediapipe
+          submodules: recursive
+
+      # -----------------------------------------------------------------------
+      # 2. Install system dependencies
+      # -----------------------------------------------------------------------
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential cmake ninja-build git curl wget \
+            unzip python3 python3-pip
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # -----------------------------------------------------------------------
+      # 3. Set up Bazelisk
+      # -----------------------------------------------------------------------
+      - name: Set up Bazelisk
+        run: |
+          curl -fsSL \
+            https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
+            | sudo tee /usr/local/bin/bazel > /dev/null
+          sudo chmod +x /usr/local/bin/bazel
+          bazel version
+
+      # -----------------------------------------------------------------------
+      # 4. Cache Bazel artifacts
+      # -----------------------------------------------------------------------
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bazel
+          key: bazel-android-${{ matrix.abi }}-${{ hashFiles('mediapipe/WORKSPACE') }}
+          restore-keys: bazel-android-${{ matrix.abi }}-
+
+      # -----------------------------------------------------------------------
+      # 5. Install Android NDK
+      # -----------------------------------------------------------------------
+      - name: Install Android NDK
+        run: |
+          NDK_ARCHIVE="android-ndk-${NDK_VERSION}-linux.zip"
+          NDK_URL="https://dl.google.com/android/repository/${NDK_ARCHIVE}"
+          echo "Downloading Android NDK ${NDK_VERSION}"
+          wget -q "${NDK_URL}" -O "/tmp/${NDK_ARCHIVE}"
+          mkdir -p "${NDK_INSTALL_PATH}"
+          unzip -q "/tmp/${NDK_ARCHIVE}" -d /tmp/ndk_extracted
+          mv "/tmp/ndk_extracted/android-ndk-${NDK_VERSION}"/* "${NDK_INSTALL_PATH}/"
+          echo "ANDROID_NDK_HOME=${NDK_INSTALL_PATH}" >> $GITHUB_ENV
+          echo "${NDK_INSTALL_PATH}" >> $GITHUB_PATH
+          echo "NDK installed to ${NDK_INSTALL_PATH}"
+          ls "${NDK_INSTALL_PATH}"
+
+      # -----------------------------------------------------------------------
+      # 6. Install Android SDK (command-line tools only)
+      # -----------------------------------------------------------------------
+      - name: Install Android SDK
+        run: |
+          mkdir -p /home/runner/android-sdk/cmdline-tools
+          SDK_URL="https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip"
+          wget -q "${SDK_URL}" -O /tmp/cmdtools.zip
+          unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools_extracted
+          mv /tmp/cmdtools_extracted/cmdline-tools /home/runner/android-sdk/cmdline-tools/latest
+          echo "ANDROID_HOME=/home/runner/android-sdk" >> $GITHUB_ENV
+          echo "/home/runner/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          yes | /home/runner/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          /home/runner/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-${ANDROID_COMPILE_SDK_LEVEL}" "build-tools;34.0.0"
+
+      # -----------------------------------------------------------------------
+      # 7. Download ONNXRuntime for Android (ABI-specific)
+      # -----------------------------------------------------------------------
+      - name: Download ONNXRuntime (Android)
+        run: |
+          set -euxo pipefail
+          # ONNXRuntime provides Android AAR packages through Maven Central.
+          ORT_AAR="onnxruntime-android-${ORT_VERSION}.aar"
+          ORT_URL="https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/${ORT_VERSION}/${ORT_AAR}"
+          echo "Downloading ONNXRuntime Android AAR"
+          mkdir -p /home/runner/onnxruntime-android
+          curl -fsSL "${ORT_URL}" -o "/tmp/${ORT_AAR}"
+          # AAR is a ZIP — extract the JNI libs for the target ABI
+          unzip -q "/tmp/${ORT_AAR}" -d /home/runner/onnxruntime-android/aar
+          echo "ORT_ANDROID_AAR=/tmp/${ORT_AAR}" >> $GITHUB_ENV
+
+      # -----------------------------------------------------------------------
+      # 8. Cache opencv_lite (per ABI)
+      # -----------------------------------------------------------------------
+      - name: Cache opencv_lite (Android ${{ matrix.abi }})
+        id: cache-opencv-lite-android
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/opencv_lite_android/${{ matrix.abi }}
+          key: opencv-lite-android-${{ matrix.abi }}-${{ env.OPENCV_LITE_REF }}-ndk${{ env.NDK_VERSION }}-ort${{ env.ORT_VERSION }}-v1
+
+      # -----------------------------------------------------------------------
+      # 9. Clone and cross-compile opencv_lite for Android
+      # -----------------------------------------------------------------------
+      - name: Clone opencv_lite
+        if: steps.cache-opencv-lite-android.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "${OPENCV_LITE_REF}" https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
+
+      - name: Cross-compile opencv_lite for Android (${{ matrix.abi }})
+        if: steps.cache-opencv-lite-android.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          ABI="${{ matrix.abi }}"
+          TOOLCHAIN="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake"
+          INSTALL_DIR="/home/runner/opencv_lite_android/${ABI}"
+          mkdir -p /tmp/opencv_lite_build_${ABI}
+
+          # Map ABI to ONNXRuntime Android lib path
+          case "$ABI" in
+            arm64-v8a)   ORT_LIB_SUBDIR="arm64-v8a" ;;
+            armeabi-v7a) ORT_LIB_SUBDIR="armeabi-v7a" ;;
+            x86_64)      ORT_LIB_SUBDIR="x86_64" ;;
+            x86)         ORT_LIB_SUBDIR="x86" ;;
+          esac
+
+          # ONNXRuntime Android .so lives inside the AAR's jni/ folder
+          ORT_ANDROID_LIB_DIR="/home/runner/onnxruntime-android/aar/jni/${ORT_LIB_SUBDIR}"
+          ORT_SDK="/home/runner/onnxruntime-android/sdk/${ABI}"
+          mkdir -p "${ORT_SDK}/include/onnxruntime" "${ORT_SDK}/lib"
+          cp -R /home/runner/onnxruntime-android/aar/headers/. "${ORT_SDK}/include/"
+          cp -R /home/runner/onnxruntime-android/aar/headers/. "${ORT_SDK}/include/onnxruntime/"
+          cp "${ORT_ANDROID_LIB_DIR}/libonnxruntime.so" "${ORT_SDK}/lib/"
+
+          cmake \
+            -S /tmp/opencv_lite \
+            -B /tmp/opencv_lite_build_${ABI} \
+            -G Ninja \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}" \
+            -DANDROID_ABI="${ABI}" \
+            -DANDROID_PLATFORM="android-${ANDROID_API_LEVEL}" \
+            -DANDROID_STL=c++_shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${INSTALL_DIR}" \
+            -DORT_SDK="${ORT_SDK}" \
+            -DONNXRT_ROOT_DIR="${ORT_SDK}" \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_LIST=core,imgproc,dnn,video \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_ANDROID_PROJECTS=OFF \
+            -DBUILD_ANDROID_EXAMPLES=OFF \
+            -DINSTALL_ANDROID_EXAMPLES=OFF \
+            -DBUILD_JAVA=OFF \
+            -DBUILD_opencv_java=OFF \
+            -DBUILD_FAT_JAVA_LIB=OFF \
+            -DBUILD_opencv_highgui=OFF
+
+          ninja -C /tmp/opencv_lite_build_${ABI} -j$(nproc)
+          ninja -C /tmp/opencv_lite_build_${ABI} install
+          cp "${ORT_SDK}/lib/libonnxruntime.so" "${INSTALL_DIR}/lib/"
+
+          echo "opencv_lite for Android ${ABI} installed to ${INSTALL_DIR}"
+          find "${INSTALL_DIR}" -name "*.so" | sort
+
+      # -----------------------------------------------------------------------
+      # 10. Patch MediaPipe WORKSPACE for Android NDK + opencv_lite
+      # -----------------------------------------------------------------------
+      - name: Patch WORKSPACE (Android NDK path)
+        working-directory: mediapipe
+        run: |
+          ABI="${{ matrix.abi }}"
+          export ABI
+          python3 - <<'EOF'
+          import re, pathlib, os, textwrap
+
+          ws = pathlib.Path("WORKSPACE")
+          content = ws.read_text()
+          ndk_home = os.environ.get("ANDROID_NDK_HOME", "/home/runner/android-ndk")
+          sdk_home = os.environ.get("ANDROID_HOME", "/home/runner/android-sdk")
+          min_api_level = os.environ.get("ANDROID_API_LEVEL", "24")
+          compile_sdk_level = os.environ.get("ANDROID_COMPILE_SDK_LEVEL", "34")
+          abi = os.environ["ABI"]
+          opencv_install = f"/home/runner/opencv_lite_android/{abi}"
+
+          content = re.sub(
+              r'http_archive\s*\(\s*name\s*=\s*"android_opencv"[\s\S]*?\n\)',
+              textwrap.dedent(f'''
+              new_local_repository(
+                  name = "android_opencv",
+                  build_file = "@//third_party:android_opencv.BUILD",
+                  path = "{opencv_install}",
+              )
+              ''').strip(),
+              content,
+              count=1,
+          )
+
+          # Drop stale generated entries before appending the SDK/NDK repositories.
+          content = re.sub(
+              r'\nandroid_sdk_repository\s*\(\s*name\s*=\s*"androidsdk"[\s\S]*?\n\)',
+              '',
+              content,
+          )
+          content = re.sub(
+              r'\nandroid_ndk_repository\s*\(\s*name\s*=\s*"androidndk"[\s\S]*?\n\)',
+              '',
+              content,
+          )
+          content = re.sub(
+              r'\nbind\s*\(\s*name\s*=\s*"android/crosstool"[\s\S]*?\n\)',
+              '',
+              content,
+          )
+          content = re.sub(
+              r'\nregister_toolchains\s*\(\s*"@androidsdk//:all",\s*"@androidndk//:all"\s*\)',
+              '',
+              content,
+          )
+          content += textwrap.dedent(f'''
+
+          android_sdk_repository(name = "androidsdk", api_level = {compile_sdk_level}, path = "{sdk_home}")
+          android_ndk_repository(name = "androidndk", api_level = {min_api_level}, path = "{ndk_home}")
+          bind(name = "android/crosstool", actual = "@androidndk//:toolchain")
+          register_toolchains("@androidsdk//:all", "@androidndk//:all")
+          ''')
+
+          ws.write_text(content)
+          print("Patched WORKSPACE: Android SDK ->", sdk_home, "| NDK ->", ndk_home, "| OpenCV ->", opencv_install)
+          EOF
+
+      - name: Generate android_opencv.BUILD
+        working-directory: mediapipe
+        run: |
+          ABI="${{ matrix.abi }}"
+          python3 - <<EOF
+          import pathlib, glob, os, textwrap
+
+          abi = "${ABI}"
+          install = f"/home/runner/opencv_lite_android/{abi}"
+          libs = sorted(glob.glob(os.path.join(install, "lib", "libopencv_*.so")))
+          ort_lib = os.path.join(install, "lib", "libonnxruntime.so")
+
+          print(f"Found Android libs for {abi}: {libs}")
+          srcs = "\n".join(f'        "lib/{os.path.basename(l)}",' for l in libs + ([ort_lib] if os.path.exists(ort_lib) else []))
+          linkopts = "\n".join(f'        "-l:libopencv_{os.path.basename(l)[len("libopencv_"):-3]}.so",' for l in libs)
+          if os.path.exists(ort_lib):
+              linkopts += '\n        "-l:libonnxruntime.so",'
+
+          content = f"""# Auto-generated for Android {abi}
+          cc_library(
+              name = "opencv",
+              hdrs = glob([
+                  "include/opencv2/**/*.h",
+                  "include/opencv2/**/*.hpp",
+              ]),
+              includes = ["include"],
+              srcs = [
+          {srcs}
+              ],
+              linkopts = [
+          {linkopts}
+              ],
+              visibility = ["//visibility:public"],
+          )
+          """
+          content = textwrap.dedent(content)
+
+          # MediaPipe uses android_opencv.BUILD referenced from WORKSPACE
+          out = pathlib.Path("third_party/android_opencv.BUILD")
+          out.write_text(content)
+          print(f"Written {out}")
+          print(content)
+          EOF
+
+      # -----------------------------------------------------------------------
+      # 11. Build MediaPipe Android AAR
+      # -----------------------------------------------------------------------
+      - name: Build MediaPipe Android AAR
+        working-directory: mediapipe
+        run: |
+          ABI="${{ matrix.abi }}"
+          case "$ABI" in
+            arm64-v8a)
+              BAZEL_ANDROID_CONFIG="android_arm64"
+              BAZEL_CPU="arm64-v8a"
+              ;;
+            armeabi-v7a)
+              BAZEL_ANDROID_CONFIG="android_arm"
+              BAZEL_CPU="armeabi-v7a"
+              ;;
+            x86_64)
+              BAZEL_ANDROID_CONFIG="android"
+              BAZEL_CPU="x86_64"
+              ;;
+          esac
+          bazel build \
+            -c opt \
+            --config="${BAZEL_ANDROID_CONFIG}" \
+            --cpu="${BAZEL_CPU}" \
+            --fat_apk_cpu="${BAZEL_CPU}" \
+            --platforms="@//third_party/android:${ABI}" \
+            --android_sdk="@androidsdk//:sdk" \
+            --define MEDIAPIPE_DISABLE_GPU=1 \
+            //mediapipe/java/com/google/mediapipe/framework:android_framework
+
+      # -----------------------------------------------------------------------
+      # 12. Upload AAR artifact
+      # -----------------------------------------------------------------------
+      - name: Upload Android artifact (${{ matrix.abi }})
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediapipe-android-${{ matrix.abi }}
+          path: mediapipe/bazel-bin/mediapipe/java/com/google/mediapipe/framework/*.aar
+          retention-days: 7
+
+  ios:
+    name: Build (iOS)
+    runs-on: macos-latest
+    timeout-minutes: 180
+
+    env:
+      ORT_VERSION: "1.18.0"
+      OPENCV_LITE_REF: "v4.13"
+      HERMETIC_PYTHON_VERSION: "3.12"
+      IOS_DEPLOYMENT_TARGET: "15.0"
+      OPENCV_IOS_INSTALL: "/Users/runner/opencv_lite_ios"
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout MediaPipe
+      # -----------------------------------------------------------------------
+      - name: Checkout MediaPipe
+        uses: actions/checkout@v4
+        with:
+          repository: google-ai-edge/mediapipe
+          ref: master
+          path: mediapipe
+          submodules: recursive
+
+      - name: Show Xcode Version
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      # -----------------------------------------------------------------------
+      # 3. Install Homebrew dependencies
+      # -----------------------------------------------------------------------
+      - name: Install build dependencies (Homebrew)
+        run: |
+          brew update
+          brew install cmake ninja bazelisk git wget python3
+
+      # -----------------------------------------------------------------------
+      # 4. Cache Bazel artifacts
+      # -----------------------------------------------------------------------
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bazel
+          key: bazel-ios-${{ hashFiles('mediapipe/WORKSPACE') }}
+          restore-keys: bazel-ios-
+
+      # -----------------------------------------------------------------------
+      # 5. Download ONNXRuntime for iOS (XCFramework)
+      # -----------------------------------------------------------------------
+      - name: Download ONNXRuntime (iOS XCFramework)
+        run: |
+          set -euxo pipefail
+          ORT_URL="https://download.onnxruntime.ai/pod-archive-onnxruntime-c-${ORT_VERSION}.zip"
+          echo "Downloading ONNXRuntime iOS XCFramework v${ORT_VERSION}"
+          curl -fL "${ORT_URL}" -o /tmp/ort_ios.zip
+          mkdir -p /Users/runner/onnxruntime_ios
+          unzip -q /tmp/ort_ios.zip -d /Users/runner/onnxruntime_ios
+
+          mkdir -p /Users/runner/onnxruntime_ios_sdk/device/include/onnxruntime
+          mkdir -p /Users/runner/onnxruntime_ios_sdk/device/lib
+          mkdir -p /Users/runner/onnxruntime_ios_sdk/simulator/include/onnxruntime
+          mkdir -p /Users/runner/onnxruntime_ios_sdk/simulator/lib
+
+          cp -R /Users/runner/onnxruntime_ios/Headers/. \
+            /Users/runner/onnxruntime_ios_sdk/device/include/
+          cp -R /Users/runner/onnxruntime_ios/Headers/. \
+            /Users/runner/onnxruntime_ios_sdk/device/include/onnxruntime/
+          cp -R /Users/runner/onnxruntime_ios/Headers/. \
+            /Users/runner/onnxruntime_ios_sdk/simulator/include/
+          cp -R /Users/runner/onnxruntime_ios/Headers/. \
+            /Users/runner/onnxruntime_ios_sdk/simulator/include/onnxruntime/
+          cp /Users/runner/onnxruntime_ios/onnxruntime.xcframework/ios-arm64/onnxruntime.framework/onnxruntime \
+            /Users/runner/onnxruntime_ios_sdk/device/lib/libonnxruntime.a
+          cp /Users/runner/onnxruntime_ios/onnxruntime.xcframework/ios-arm64_x86_64-simulator/onnxruntime.framework/onnxruntime \
+            /Users/runner/onnxruntime_ios_sdk/simulator/lib/libonnxruntime.a
+
+          echo "ORT_IOS_DEVICE_SDK=/Users/runner/onnxruntime_ios_sdk/device" >> $GITHUB_ENV
+          echo "ORT_IOS_SIMULATOR_SDK=/Users/runner/onnxruntime_ios_sdk/simulator" >> $GITHUB_ENV
+
+      # -----------------------------------------------------------------------
+      # 6. Cache opencv_lite (iOS)
+      # -----------------------------------------------------------------------
+      - name: Cache opencv_lite (iOS)
+        id: cache-opencv-lite-ios
+        uses: actions/cache@v4
+        with:
+          path: /Users/runner/opencv_lite_ios
+          key: opencv-lite-ios-${{ env.OPENCV_LITE_REF }}-ort${{ env.ORT_VERSION }}-ios${{ env.IOS_DEPLOYMENT_TARGET }}-v1
+
+      # -----------------------------------------------------------------------
+      # 7. Clone and cross-compile opencv_lite as iOS XCFramework
+      # -----------------------------------------------------------------------
+      - name: Clone opencv_lite
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "${OPENCV_LITE_REF}" https://github.com/zihaomu/opencv_lite.git /tmp/opencv_lite
+
+      - name: Build opencv_lite for iOS arm64 (device)
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          export IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}"
+          cmake \
+            -S /tmp/opencv_lite \
+            -B /tmp/opencv_lite_ios_arm64 \
+            -G Xcode \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneOS_Xcode.cmake \
+            -DIOS_ARCH=arm64 \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_XCODE_ATTRIBUTE_ARCHS=arm64 \
+            -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
+            -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+            -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="" \
+            -DCMAKE_CONFIGURATION_TYPES=Release \
+            -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/arm64" \
+            -DORT_SDK="${ORT_IOS_DEVICE_SDK}" \
+            -DONNXRT_ROOT_DIR="${ORT_IOS_DEVICE_SDK}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_LIST=core,imgproc,dnn,video \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_JAVA=OFF \
+            -DBUILD_opencv_java=OFF \
+            -DBUILD_FAT_JAVA_LIB=OFF \
+            -DBUILD_opencv_highgui=OFF
+          cmake --build /tmp/opencv_lite_ios_arm64 --config Release --parallel $(sysctl -n hw.logicalcpu) -- ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          cmake --install /tmp/opencv_lite_ios_arm64 --config Release
+
+      - name: Build opencv_lite for iOS Simulator (arm64 + x86_64)
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          export IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}"
+          for SIM_ARCH in arm64 x86_64; do
+            cmake \
+              -S /tmp/opencv_lite \
+              -B "/tmp/opencv_lite_sim_${SIM_ARCH}" \
+              -G Xcode \
+              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+              -DCMAKE_TOOLCHAIN_FILE=/tmp/opencv_lite/platforms/ios/cmake/Toolchains/Toolchain-iPhoneSimulator_Xcode.cmake \
+              -DIOS_ARCH="${SIM_ARCH}" \
+              -DCMAKE_OSX_ARCHITECTURES="${SIM_ARCH}" \
+              -DCMAKE_XCODE_ATTRIBUTE_ARCHS="${SIM_ARCH}" \
+              -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
+              -DIPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+              -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+              -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+              -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+              -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+              -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="" \
+              -DCMAKE_CONFIGURATION_TYPES=Release \
+              -DCMAKE_INSTALL_PREFIX="/Users/runner/opencv_lite_ios/sim_${SIM_ARCH}" \
+              -DORT_SDK="${ORT_IOS_SIMULATOR_SDK}" \
+              -DONNXRT_ROOT_DIR="${ORT_IOS_SIMULATOR_SDK}" \
+              -DBUILD_SHARED_LIBS=OFF \
+              -DBUILD_LIST=core,imgproc,dnn,video \
+              -DBUILD_TESTS=OFF \
+              -DBUILD_EXAMPLES=OFF \
+              -DBUILD_JAVA=OFF \
+              -DBUILD_opencv_java=OFF \
+              -DBUILD_FAT_JAVA_LIB=OFF \
+              -DBUILD_opencv_highgui=OFF
+            cmake --build "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release --parallel $(sysctl -n hw.logicalcpu) -- ARCHS="${SIM_ARCH}" ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+            cmake --install "/tmp/opencv_lite_sim_${SIM_ARCH}" --config Release
+          done
+
+      - name: Create fat simulator slice (lipo) and XCFramework
+        if: steps.cache-opencv-lite-ios.outputs.cache-hit != 'true'
+        run: |
+          # Find all .a libraries from device build
+          DEVICE_LIBS=$(find /Users/runner/opencv_lite_ios/arm64/lib -name "libopencv_*.a" | sort)
+          echo "Device libs: ${DEVICE_LIBS}"
+
+          mkdir -p /Users/runner/opencv_lite_ios/xcframework_inputs/device/lib
+          mkdir -p /Users/runner/opencv_lite_ios/xcframework_inputs/simulator/lib
+
+          # Copy device libs as-is
+          cp -r /Users/runner/opencv_lite_ios/arm64/lib/libopencv_*.a \
+            /Users/runner/opencv_lite_ios/xcframework_inputs/device/lib/
+
+          # Lipo sim arm64 + x86_64 into fat simulator libs
+          for LIB in $(ls /Users/runner/opencv_lite_ios/sim_arm64/lib/libopencv_*.a); do
+            LIBNAME=$(basename ${LIB})
+            SIM_X86="/Users/runner/opencv_lite_ios/sim_x86_64/lib/${LIBNAME}"
+            if [ -f "${SIM_X86}" ]; then
+              lipo -create "${LIB}" "${SIM_X86}" \
+                -output "/Users/runner/opencv_lite_ios/xcframework_inputs/simulator/lib/${LIBNAME}"
+            else
+              cp "${LIB}" "/Users/runner/opencv_lite_ios/xcframework_inputs/simulator/lib/${LIBNAME}"
+            fi
+          done
+
+          # Copy headers (same across architectures)
+          cp -r /Users/runner/opencv_lite_ios/arm64/include \
+            /Users/runner/opencv_lite_ios/xcframework_inputs/device/include
+          cp -r /Users/runner/opencv_lite_ios/arm64/include \
+            /Users/runner/opencv_lite_ios/xcframework_inputs/simulator/include
+
+          echo "XCFramework inputs prepared."
+          ls /Users/runner/opencv_lite_ios/xcframework_inputs/device/lib/
+          ls /Users/runner/opencv_lite_ios/xcframework_inputs/simulator/lib/
+
+      # -----------------------------------------------------------------------
+      # 8. Patch MediaPipe WORKSPACE for iOS opencv_lite
+      # -----------------------------------------------------------------------
+      - name: Patch WORKSPACE (iOS)
+        working-directory: mediapipe
+        run: |
+          python3 - <<'EOF'
+          import re, pathlib
+
+          ws = pathlib.Path("WORKSPACE")
+          content = ws.read_text()
+
+          # MediaPipe uses opencv_ios_source.BUILD with a local xcframework
+          # Point ios_opencv to our opencv_lite install
+          pattern = r'(new_local_repository\s*\(\s*name\s*=\s*"ios_opencv"[^)]*path\s*=\s*")[^"]*(")'
+          replacement = r'\g<1>/Users/runner/opencv_lite_ios/xcframework_inputs\g<2>'
+          new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+          new_content = new_content.replace(
+              'default_python_version = "system"',
+              'default_python_version = "3.12"',
+          )
+          if new_content == content:
+              print("WARNING: ios_opencv path and hermetic Python defaults were not changed — check manually")
+          else:
+              ws.write_text(new_content)
+              print("Patched ios_opencv path and hermetic Python version")
+          EOF
+
+      - name: Generate opencv_ios_source.BUILD
+        working-directory: mediapipe
+        run: |
+          python3 - <<'EOF'
+          import pathlib, glob, textwrap
+
+          device_libs = sorted(glob.glob("/Users/runner/opencv_lite_ios/xcframework_inputs/device/lib/libopencv_*.a"))
+          lib_entries_device = "\n".join(f'        "device/lib/{pathlib.Path(l).name}",' for l in device_libs)
+          lib_entries_sim    = "\n".join(
+              f'        "simulator/lib/{pathlib.Path(l).name}",' for l in device_libs
+          )
+
+          content = f"""# Auto-generated by build-mediapipe-opencv-lite-ios.yml
+          # opencv_lite static libs for iOS device + simulator
+          cc_library(
+              name = "opencv",
+              hdrs = glob([
+                  "device/include/opencv2/**/*.h",
+                  "device/include/opencv2/**/*.hpp",
+              ]),
+              includes = ["device/include"],
+              srcs = select({{
+                  "@platforms//cpu:aarch64": [
+          {lib_entries_device}
+                  ],
+                  "//conditions:default": [
+          {lib_entries_sim}
+                  ],
+              }}),
+              visibility = ["//visibility:public"],
+              linkstatic = 1,
+          )
+          """
+          content = textwrap.dedent(content)
+          out = pathlib.Path("third_party/opencv_ios_source.BUILD")
+          out.write_text(content)
+          print("Written", out)
+          print(content)
+          EOF
+
+      # -----------------------------------------------------------------------
+      # 9. Build MediaPipe iOS framework
+      # -----------------------------------------------------------------------
+      - name: Build MediaPipe iOS Framework
+        working-directory: mediapipe
+        run: |
+          bazel build \
+            -c opt \
+            --config=ios \
+            --cpu=ios_arm64 \
+            --apple_platform_type=ios \
+            --ios_minimum_os="${IOS_DEPLOYMENT_TARGET}" \
+            --repo_env=HERMETIC_PYTHON_VERSION="${HERMETIC_PYTHON_VERSION}" \
+            --define MEDIAPIPE_DISABLE_GPU=0 \
+            //mediapipe/objc:mediapipe_framework_ios
+
+      # -----------------------------------------------------------------------
+      # 10. Upload iOS artifact
+      # -----------------------------------------------------------------------
+      - name: Upload iOS Framework artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediapipe-ios-framework
+          path: mediapipe/bazel-bin/mediapipe/objc/MediaPipeFramework.zip
+          retention-days: 7
