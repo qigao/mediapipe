@@ -1671,13 +1671,18 @@ jobs:
           mkdir -p "${PKG_DIR}/share"
           mkdir -p "${PKG_DIR}/lib/mediapipe"
 
-          mapfile -t IOS_OUTPUTS < <(
+          IOS_OUTPUTS=()
+          while IFS= read -r output; do
+            IOS_OUTPUTS+=("${output}")
+          done < <(
             find mediapipe/bazel-bin/mediapipe/objc \
               \( -type f \( -name "*.zip" -o -name "*.a" -o -name "*.dylib" \) -o -type d -name "*.framework" \) \
               2>/dev/null | sort
           )
           if [ "${#IOS_OUTPUTS[@]}" -eq 0 ]; then
-            mapfile -t IOS_OUTPUTS < <(
+            while IFS= read -r output; do
+              IOS_OUTPUTS+=("${output}")
+            done < <(
               find mediapipe/bazel-bin \
                 \( -type f \( -name "*MediaPipe*" -o -name "*.zip" \) -o -type d -name "*.framework" \) \
                 2>/dev/null | sort
