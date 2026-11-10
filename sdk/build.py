@@ -286,7 +286,7 @@ def main():
         f"--distdir={downloads}", *flags, "//qigao_sdk:native",
     ], cwd=source, check=True)
     execroot = Path(subprocess.check_output(
-        [*bazel, "info", "execution_root"], cwd=source, text=True,
+        [*bazel, "info", *flags, "execution_root"], cwd=source, text=True,
     ).strip())
     manifest = json.loads((source / "bazel-bin/qigao_sdk/native.json").read_text(encoding="utf-8"))
     prefix = out / "package"
