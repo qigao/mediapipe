@@ -7,8 +7,10 @@ def _export_cc_sdk_impl(ctx):
     libraries = {}
     flags = []
     for linker_input in inputs:
-        if linker_input.additional_inputs:
-            fail("Unsupported additional linker inputs in {}".format(linker_input.owner))
+        for extra in linker_input.additional_inputs:
+            # Bazel uses this file to assemble the Objective-C archive with libtool.
+            if extra.basename != linker_input.owner.name + "-archive.objlist":
+                fail("Unsupported additional linker input {} in {}".format(extra.path, linker_input.owner))
         flags.extend(linker_input.user_link_flags)
         for lib in linker_input.libraries:
             archive = lib.pic_static_library or lib.static_library
