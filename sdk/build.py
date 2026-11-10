@@ -221,10 +221,10 @@ def build_flags(target, arch):
     ]
     if target != "android":
         flags.append("--force_pic")
+    if target in {"linux", "android"} and arch == "x64":
+        flags.append("--define=xnn_enable_avx512fp16=false")
     if target == "linux":
         flags.extend(f"--copt=-D{define}" for define in LINUX_DEFINES)
-        if arch == "x64":
-            flags.append("--define=xnn_enable_avx512fp16=false")
     elif target == "android":
         cpu, platform_name = {
             "arm64": ("arm64-v8a", "android_arm64_platform"),
