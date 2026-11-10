@@ -225,6 +225,7 @@ def build_flags(target, arch):
         flags.append("--define=xnn_enable_avx512fp16=false")
     if target == "linux":
         flags.extend(f"--copt=-D{define}" for define in LINUX_DEFINES)
+        flags.append("--per_file_copt=gl_context_egl[.]cc$@-DMEDIAPIPE_OMIT_EGL_WINDOW_BIT")
     elif target == "android":
         cpu, platform_name = {
             "arm64": ("arm64-v8a", "android_arm64_platform"),
