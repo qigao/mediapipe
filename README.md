@@ -4,6 +4,18 @@
 
 ---
 
+## Native MediaPipe Tasks SDK
+
+The [native SDK workflow](.github/workflows/build-native-sdk.yml) builds the MediaPipe 0.10.26 C++ task and calculator libraries with the released [qigao/ocv](https://github.com/qigao/ocv/releases/tag/v0.1.0) OpenCV SDK. The first SDK profile is CPU-only for Linux x64 and ARM64 on Ubuntu 24.04. It includes generated headers, PIC static libraries, and the `MediaPipe::Tasks` CMake target.
+
+Build locally with Bazel 6.5.0 and Clang.
+
+```sh
+CC=clang CXX=clang++ python3 -B sdk/build.py --bazel /path/to/bazel
+```
+
+The SDK archives are staged in `build-sdk/`. Point CMake at the extracted archive and use `find_package(MediaPipe 0.10.26 EXACT CONFIG REQUIRED)`. The workflow builds the actual GDMP add-on from the staged SDK and runs its Godot inference tests. An `sdk-v*` tag publishes both archives and their SHA-256 checksums after those jobs pass.
+
 ## Badges
 
 | Platform | Status |
