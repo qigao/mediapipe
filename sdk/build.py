@@ -219,11 +219,10 @@ def build_flags(target, arch):
         "--cxxopt=-std=c++17",
         "--host_cxxopt=-std=c++17",
     ]
-    if target != "android":
-        flags.append("--force_pic")
     if target in {"linux", "android"} and arch == "x64":
         flags.append("--define=xnn_enable_avx512fp16=false")
     if target == "linux":
+        flags.append("--force_pic")
         flags.extend(f"--copt=-D{define}" for define in LINUX_DEFINES)
         flags.append("--per_file_copt=gl_context_egl[.]cc$@-DMEDIAPIPE_OMIT_EGL_WINDOW_BIT")
     elif target == "android":
