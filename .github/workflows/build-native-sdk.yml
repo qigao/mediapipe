@@ -45,6 +45,10 @@ jobs:
             build-sdk/disk-cache
           key: mediapipe-sdk-linux-${{ matrix.arch }}-${{ hashFiles('sdk/**') }}
           restore-keys: mediapipe-sdk-linux-${{ matrix.arch }}-
+      - name: Install EGL and OpenGL ES headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libegl-dev libgles-dev
       - name: Build the pinned MediaPipe SDK
         env:
           CC: clang

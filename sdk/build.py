@@ -86,10 +86,11 @@ def write_cmake(manifest, prefix):
         "if(TARGET MediaPipe::Tasks)",
         "  return()",
         "endif()",
+        "set(MediaPipe_GPU_ENABLED TRUE)",
         "add_library(MediaPipe::Tasks INTERFACE IMPORTED)",
         "target_compile_features(MediaPipe::Tasks INTERFACE cxx_std_17)",
     ]
-    definitions = ["MEDIAPIPE_DISABLE_GPU=1", *manifest["defines"]]
+    definitions = ["EGL_NO_X11", "MESA_EGL_NO_X11_HEADERS", *manifest["defines"]]
     lines.append("target_compile_definitions(MediaPipe::Tasks INTERFACE " +
                  " ".join(json.dumps(value) for value in definitions) + ")")
     for key, system in (("includes", ""), ("system_includes", " SYSTEM")):
@@ -140,7 +141,8 @@ def stage(execroot, manifest, prefix, source, ocv, arch):
         "mediapipe_commit": MEDIAPIPE_COMMIT,
         "opencv_sdk_version": OCV_VERSION,
         "platform": f"linux-{arch}",
-        "gpu": False,
+        "gpu": True,
+        "gpu_backend": "egl-opengles",
     }
     (prefix / "manifest.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     notices = prefix / "licenses"
@@ -180,7 +182,8 @@ def main():
     flags = [
         "--repo_env=HERMETIC_PYTHON_VERSION=3.12",
         "--action_env=PYTHONHASHSEED=0",
-        "--define=MEDIAPIPE_DISABLE_GPU=1",
+        "--copt=-DEGL_NO_X11",
+        "--copt=-DMESA_EGL_NO_X11_HEADERS",
         "--force_pic",
         "--copt=-fPIC",
         "--cxxopt=-std=c++17",

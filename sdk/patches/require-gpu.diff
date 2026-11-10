@@ -1,0 +1,37 @@
+diff --git a/mediapipe/calculators/tensor/inference_calculator.cc b/mediapipe/calculators/tensor/inference_calculator.cc
+--- a/mediapipe/calculators/tensor/inference_calculator.cc
++++ b/mediapipe/calculators/tensor/inference_calculator.cc
+@@ -53,6 +53,8 @@
+         Subgraph::GetOptions<mediapipe::InferenceCalculatorOptions>(
+             subgraph_node);
+     std::vector<absl::string_view> impls;
++    const bool requires_gpu =
++        options.has_delegate() && options.delegate().has_gpu();
+ 
+ #if !MEDIAPIPE_FORCE_CPU_INFERENCE
+ 
+@@ -77,8 +79,10 @@
+       }
+     }
+ #endif  // !MEDIAPIPE_FORCE_CPU_INFERENCE
+-    impls.emplace_back("Cpu");
+-    impls.emplace_back("Xnnpack");
++    if (!requires_gpu) {
++      impls.emplace_back("Cpu");
++      impls.emplace_back("Xnnpack");
++    }
+     std::vector<std::string> missing_impls;
+     for (const auto& suffix : impls) {
+       const auto impl = absl::StrCat("InferenceCalculator", suffix);
+diff --git a/mediapipe/calculators/tensor/inference_calculator_gl_advanced.cc b/mediapipe/calculators/tensor/inference_calculator_gl_advanced.cc
+--- a/mediapipe/calculators/tensor/inference_calculator_gl_advanced.cc
++++ b/mediapipe/calculators/tensor/inference_calculator_gl_advanced.cc
+@@ -203,7 +203,7 @@
+   tflite_gpu_runner_ = std::make_unique<tflite::gpu::TFLiteGPURunner>(options);
+   switch (delegate.gpu().api()) {
+     case mediapipe::InferenceCalculatorOptions::Delegate::Gpu::ANY: {
+-      // Do not need to force any specific API.
++      tflite_gpu_runner_->ForceOpenGL();
+       break;
+     }
+     case mediapipe::InferenceCalculatorOptions::Delegate::Gpu::OPENGL: {
