@@ -215,11 +215,12 @@ def build_flags(target, arch):
     flags = [
         "--repo_env=HERMETIC_PYTHON_VERSION=3.12",
         "--action_env=PYTHONHASHSEED=0",
-        "--force_pic",
         "--copt=-fPIC",
         "--cxxopt=-std=c++17",
         "--host_cxxopt=-std=c++17",
     ]
+    if target != "android":
+        flags.append("--force_pic")
     if target == "linux":
         flags.extend(f"--copt=-D{define}" for define in LINUX_DEFINES)
         if arch == "x64":
