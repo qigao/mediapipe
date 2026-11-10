@@ -100,12 +100,11 @@ def write_cmake(manifest, prefix):
     for path in manifest["quote_includes"]:
         lines.append(f'target_compile_options(MediaPipe::Tasks INTERFACE '
                      f'"SHELL:-iquote \\"${{_mp_root}}/include/{path}\\"")')
-    link = ["-Wl,--start-group"]
+    libraries = []
     for path, alwayslink in manifest["libraries"]:
-        library = f'"${{_mp_root}}/lib/archives/{path}"'
-        link.extend(["-Wl,--whole-archive", library, "-Wl,--no-whole-archive"]
-                    if alwayslink else [library])
-    link.append("-Wl,--end-group")
+        archive = f"${{_mp_root}}/lib/archives/{path}"
+        libraries.append(f"$<LINK_LIBRARY:WHOLE_ARCHIVE,{archive}>" if alwayslink else archive)
+    link = ['"$<LINK_GROUP:RESCAN,' + ",".join(libraries) + '>"']
     for flag in manifest["link_flags"]:
         if not re.fullmatch(r"(-l[A-Za-z0-9_+:.-]+|-pthread|-Wl,[A-Za-z0-9_+=:,.\-]+)", flag):
             raise ValueError(f"Unsupported Linux linker flag: {flag}")

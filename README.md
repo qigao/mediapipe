@@ -14,7 +14,7 @@ Build locally with Bazel 6.5.0 and Clang.
 CC=clang CXX=clang++ python3 -B sdk/build.py --bazel /path/to/bazel
 ```
 
-The SDK archives are staged in `build-sdk/`. Point CMake at the extracted archive and use `find_package(MediaPipe 0.10.26 EXACT CONFIG REQUIRED)`. The workflow builds the actual GDMP add-on from the staged SDK and runs its Godot inference tests. An `sdk-v*` tag publishes both archives and their SHA-256 checksums after those jobs pass.
+The SDK archives are staged in `build-sdk/`. Point CMake at the extracted archive and use `find_package(MediaPipe 0.10.26 EXACT CONFIG REQUIRED)`. An `sdk-v*` tag publishes both archives and their SHA-256 checksums after both native SDK builds pass.
 
 ## Badges
 

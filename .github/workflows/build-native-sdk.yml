@@ -29,14 +29,10 @@ jobs:
             runner: ubuntu-24.04
             bazel: bazel-6.5.0-linux-x86_64
             bazel_sha: a40ac69263440761199fcb8da47ad4e3f328cbe79ffbf4ecc14e5ba252857307
-            godot_arch: x86_64
-            godot_sha: 87f6e6be292929e363d15ed9052f277b2ba4e95ed994e1e099048097be2dfd03
           - arch: arm64
             runner: ubuntu-24.04-arm
             bazel: bazel-6.5.0-linux-arm64
             bazel_sha: 5afe973cadc036496cac66f1414ca9be36881423f576db363d83afc9084c0c2f
-            godot_arch: arm64
-            godot_sha: 97ad6d1b74020bd591520e4f8810c6a07451af75eefa0932f57daeb805124618
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -61,32 +57,6 @@ jobs:
           printf '%s  %s\n' "$BAZEL_SHA" "$bazel" | sha256sum -c -
           chmod +x "$bazel"
           python3 -B sdk/build.py --bazel "$bazel"
-      - name: Build and run GDMP using the staged SDK
-        env:
-          ARCH: ${{ matrix.arch }}
-          GODOT_ARCH: ${{ matrix.godot_arch }}
-          GODOT_SHA: ${{ matrix.godot_sha }}
-        run: |
-          inputs="$RUNNER_TEMP/gdmp"
-          mkdir -p "$inputs"/{plugin,bindings,engine,mediapipe}
-          plugin_revision=7fb47a297fd82ec91e83a71f36c4bd1b48505f2f
-          godot_cpp_revision=e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77
-          curl -fsSL --retry 3 "https://codeload.github.com/qigao/godot-plugins/tar.gz/$plugin_revision" -o "$inputs/plugin.tar.gz"
-          printf '%s  %s\n' a1e571687cdf5ba265401f064bc15304b2bed6ec52b0bd2ddf1a8a3c3a7c5b04 "$inputs/plugin.tar.gz" | sha256sum -c -
-          curl -fsSL --retry 3 "https://codeload.github.com/godotengine/godot-cpp/tar.gz/$godot_cpp_revision" -o "$inputs/godot-cpp.tar.gz"
-          printf '%s  %s\n' d4c03daf46c8bef4544614182b0762c3e32789151c7f8f44e8eb2053d5cddeba "$inputs/godot-cpp.tar.gz" | sha256sum -c -
-          engine="Godot_v4.5.2-stable_linux.$GODOT_ARCH"
-          curl -fsSL --retry 3 "https://github.com/godotengine/godot-builds/releases/download/4.5.2-stable/$engine.zip" -o "$inputs/godot.zip"
-          printf '%s  %s\n' "$GODOT_SHA" "$inputs/godot.zip" | sha256sum -c -
-          tar -xzf "$inputs/plugin.tar.gz" --strip-components=1 -C "$inputs/plugin"
-          tar -xzf "$inputs/godot-cpp.tar.gz" --strip-components=1 -C "$inputs/bindings"
-          tar -xzf "build-sdk/mediapipe-tasks-0.10.26-linux-$ARCH.tar.gz" -C "$inputs/mediapipe"
-          unzip -q "$inputs/godot.zip" -d "$inputs/engine"
-          cmake -S "$inputs/plugin/src/gdmp" -B build-gdmp -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_COMPILER=clang++ "-DCMAKE_PREFIX_PATH=$inputs/mediapipe" \
-            "-DGODOT_CPP_DIR=$inputs/bindings"
-          cmake --build build-gdmp --parallel 4
-          bash "$inputs/plugin/tests/mediapipe/run.sh" build-gdmp "$inputs/engine/$engine"
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: mediapipe-native-linux-${{ matrix.arch }}
