@@ -10,9 +10,22 @@ cc_import(
 
 cc_library(
     name = "opencv",
-    hdrs = glob(["include/opencv4/opencv2/**"]),
-    includes = ["include/opencv4"],
-    linkopts = ["-ldl", "-lm", "-lpthread", "-lrt"],
-    deps = [":imgproc", ":core", "@zlib//:zlib"],
+    hdrs = glob([
+        "include/opencv4/opencv2/**",
+        "sdk/native/jni/include/opencv2/**",
+    ]),
+    includes = select({
+        "@platforms//os:android": ["sdk/native/jni/include"],
+        "//conditions:default": ["include/opencv4"],
+    }),
+    linkopts = select({
+        "@platforms//os:android": ["-landroid", "-ldl", "-llog", "-lm"],
+        "@platforms//os:macos": ["-framework Accelerate", "-framework Foundation"],
+        "@platforms//os:linux": ["-ldl", "-lm", "-lpthread", "-lrt"],
+    }),
+    deps = [":imgproc", ":core", "@zlib//:zlib"] + select({
+        "@platforms//os:android": ["@androidndk//:cpufeatures"],
+        "//conditions:default": [],
+    }),
     visibility = ["//visibility:public"],
 )

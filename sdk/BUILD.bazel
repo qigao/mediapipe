@@ -38,5 +38,8 @@ export_cc_sdk(
         "//mediapipe/util:resource_util",
         "//mediapipe/util:resource_util_custom",
         "@com_google_protobuf//:protobuf",
-    ],
+    ] + select({
+        "@platforms//os:android": ["//mediapipe/util/android:asset_manager_util"],
+        "//conditions:default": [],
+    }),
 )

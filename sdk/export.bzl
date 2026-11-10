@@ -5,12 +5,11 @@ def _export_cc_sdk_impl(ctx):
     compilation = info.compilation_context
     inputs = info.linking_context.linker_inputs.to_list()
     libraries = {}
-    flags = {}
+    flags = []
     for linker_input in inputs:
         if linker_input.additional_inputs:
             fail("Unsupported additional linker inputs in {}".format(linker_input.owner))
-        for flag in linker_input.user_link_flags:
-            flags[flag] = True
+        flags.extend(linker_input.user_link_flags)
         for lib in linker_input.libraries:
             archive = lib.pic_static_library or lib.static_library
             if not archive:
@@ -25,7 +24,7 @@ def _export_cc_sdk_impl(ctx):
         "quote_includes": compilation.quote_includes.to_list(),
         "system_includes": compilation.system_includes.to_list(),
         "libraries": [[archive.path, alwayslink] for archive, alwayslink in libraries.items()],
-        "link_flags": flags.keys(),
+        "link_flags": flags,
     }))
     return [DefaultInfo(files = depset([manifest] + libraries.keys(), transitive = [compilation.headers]))]
 

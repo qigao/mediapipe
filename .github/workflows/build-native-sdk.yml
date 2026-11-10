@@ -18,21 +18,43 @@ permissions:
 
 jobs:
   build:
-    name: Linux ${{ matrix.arch }}
+    name: ${{ matrix.target }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: x64
+          - target: linux
+            arch: x64
             runner: ubuntu-24.04
             bazel: bazel-6.5.0-linux-x86_64
             bazel_sha: a40ac69263440761199fcb8da47ad4e3f328cbe79ffbf4ecc14e5ba252857307
-          - arch: arm64
+          - target: linux
+            arch: arm64
             runner: ubuntu-24.04-arm
             bazel: bazel-6.5.0-linux-arm64
             bazel_sha: 5afe973cadc036496cac66f1414ca9be36881423f576db363d83afc9084c0c2f
+          - target: android
+            arch: x64
+            runner: ubuntu-24.04
+            bazel: bazel-6.5.0-linux-x86_64
+            bazel_sha: a40ac69263440761199fcb8da47ad4e3f328cbe79ffbf4ecc14e5ba252857307
+          - target: android
+            arch: arm64
+            runner: ubuntu-24.04
+            bazel: bazel-6.5.0-linux-x86_64
+            bazel_sha: a40ac69263440761199fcb8da47ad4e3f328cbe79ffbf4ecc14e5ba252857307
+          - target: macos
+            arch: x64
+            runner: macos-15-intel
+            bazel: bazel-6.5.0-darwin-x86_64
+            bazel_sha: bbf9c2c03bac48e0514f46db0295027935535d91f6d8dcd960c53393559eab29
+          - target: macos
+            arch: arm64
+            runner: macos-15
+            bazel: bazel-6.5.0-darwin-arm64
+            bazel_sha: c6b6dc17efcdf13fba484c6fe0b6c3361b888ae7b9573bc25a2dbe8c502448eb
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -43,28 +65,35 @@ jobs:
             build-sdk/downloads
             build-sdk/repository-cache
             build-sdk/disk-cache
-          key: mediapipe-sdk-linux-${{ matrix.arch }}-${{ hashFiles('sdk/**') }}
-          restore-keys: mediapipe-sdk-linux-${{ matrix.arch }}-
+          key: mediapipe-sdk-${{ matrix.target }}-${{ matrix.arch }}-${{ hashFiles('sdk/**') }}
+          restore-keys: mediapipe-sdk-${{ matrix.target }}-${{ matrix.arch }}-
       - name: Install EGL and OpenGL ES headers
+        if: matrix.target == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends libegl-dev libgles-dev
       - name: Build the pinned MediaPipe SDK
+        shell: bash
         env:
           CC: clang
           CXX: clang++
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
           BAZEL_ASSET: ${{ matrix.bazel }}
           BAZEL_SHA: ${{ matrix.bazel_sha }}
         run: |
           bazel="$RUNNER_TEMP/$BAZEL_ASSET"
           curl -fsSL --retry 3 "https://releases.bazel.build/6.5.0/release/$BAZEL_ASSET" -o "$bazel"
-          printf '%s  %s\n' "$BAZEL_SHA" "$bazel" | sha256sum -c -
+          printf '%s  %s\n' "$BAZEL_SHA" "$bazel" | shasum -a 256 -c -
           chmod +x "$bazel"
-          python3 -B sdk/build.py --bazel "$bazel"
+          if [[ "$TARGET" == android ]]; then
+            export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.3.13750724"
+          fi
+          python3 -B sdk/build.py --target "$TARGET" --arch "$ARCH" --bazel "$bazel"
       - uses: actions/upload-artifact@v7.0.2
         with:
-          name: mediapipe-native-linux-${{ matrix.arch }}
-          path: build-sdk/mediapipe-tasks-*-linux-*.tar.gz
+          name: mediapipe-native-${{ matrix.target }}-${{ matrix.arch }}
+          path: build-sdk/mediapipe-tasks-*-${{ matrix.target }}-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
 
   release:
@@ -76,7 +105,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8.0.1
         with:
-          pattern: mediapipe-native-linux-*
+          pattern: mediapipe-native-*
           merge-multiple: true
           path: release
       - name: Publish checked SDK archives
