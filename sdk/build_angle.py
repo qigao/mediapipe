@@ -61,6 +61,10 @@ def prepare(out):
     gn_dir.mkdir(exist_ok=True)
     with zipfile.ZipFile(gn_archive) as archive:
         archive.extractall(gn_dir)
+    clang = fetch(downloads, lock["clang"]["url"], lock["clang"]["sha256"])
+    clang_dir = source / "third_party/llvm-build/Release+Asserts"
+    clang_dir.mkdir(parents=True)
+    subprocess.run(["tar", "-xJf", clang, "-C", clang_dir], check=True)
     rc = fetch(downloads, lock["rc"]["url"], lock["rc"]["sha256"], "chromium-rc.exe")
     shutil.copyfile(rc, source / "build/toolchain/win/rc/win/rc.exe")
     apply_source_patch(source, SDK / "angle-windows.diff", out)
@@ -72,8 +76,6 @@ def main():
     parser.add_argument("--arch", choices=["x64", "arm64"], required=True)
     parser.add_argument("--compiler", required=True, type=Path,
                         help="LLVM-MinGW root, used to generate GNU import libraries")
-    parser.add_argument("--clang", required=True, type=Path,
-                        help="Clang installation with clang-cl and lld-link for ANGLE's GN build")
     parser.add_argument("--out", type=Path, default=Path("build-angle"))
     parser.add_argument("--jobs", type=int, default=4)
     args = parser.parse_args()
@@ -91,7 +93,7 @@ def main():
     gn_args = {
         "target_os": "win", "target_cpu": args.arch,
         "is_debug": False, "is_component_build": False,
-        "is_clang": True, "clang_base_path": args.clang.resolve().as_posix(),
+        "is_clang": True,
         "visual_studio_path": Path(installation["installationPath"]).as_posix(),
         "visual_studio_version": installation["installationVersion"].split(".")[0],
         "windows_sdk_path": sdk.as_posix(), "wdk_path": sdk.as_posix(),

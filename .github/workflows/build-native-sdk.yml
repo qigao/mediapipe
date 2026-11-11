@@ -100,8 +100,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
           MINGW_ROOT: ${{ steps.mingw.outputs.root }}
         run: |
-          python -B sdk/build_angle.py --arch "$ARCH" --compiler "$MINGW_ROOT" \
-            --clang 'C:/Program Files/LLVM'
+          python -B sdk/build_angle.py --arch "$ARCH" --compiler "$MINGW_ROOT"
       - name: Build the pinned MediaPipe SDK
         shell: bash
         env:
