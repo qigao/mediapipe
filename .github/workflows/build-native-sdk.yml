@@ -112,10 +112,25 @@ jobs:
           BAZEL_ASSET: ${{ matrix.bazel }}
           BAZEL_SHA: ${{ matrix.bazel_sha }}
         run: |
+          python_cmd=python3
+          if [[ "$TARGET" == windows ]]; then
+            python_cmd=python
+          fi
+          "$python_cmd" -B - <<'PY'
+          import os
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, "sdk")
+          from build import fetch
+
+          asset = os.environ["BAZEL_ASSET"]
+          bazel = fetch(Path(os.environ["RUNNER_TEMP"]),
+                        f"https://releases.bazel.build/7.7.0/release/{asset}",
+                        os.environ["BAZEL_SHA"])
+          bazel.chmod(0o755)
+          PY
           bazel="$RUNNER_TEMP/$BAZEL_ASSET"
-          curl -fsSL --retry 3 "https://releases.bazel.build/7.7.0/release/$BAZEL_ASSET" -o "$bazel"
-          printf '%s  %s\n' "$BAZEL_SHA" "$bazel" | shasum -a 256 -c -
-          chmod +x "$bazel"
           if [[ "$TARGET" == android ]]; then
             export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.3.13750724"
           fi
@@ -123,7 +138,7 @@ jobs:
           if [[ "$TARGET" == windows ]]; then
             args+=(--compiler "$MINGW_ROOT" --angle build-angle/package)
           fi
-          python3 -B sdk/build.py "${args[@]}"
+          "$python_cmd" -B sdk/build.py "${args[@]}"
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: mediapipe-native-${{ matrix.target }}-${{ matrix.arch }}
