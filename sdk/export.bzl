@@ -6,8 +6,6 @@ def _export_cc_sdk_impl(ctx):
     inputs = info.linking_context.linker_inputs.to_list()
     libraries = {}
     flags = []
-    interfaces = []
-    dynamic = []
     for linker_input in inputs:
         for extra in linker_input.additional_inputs:
             # Bazel uses this file to assemble the Objective-C archive with libtool.
@@ -17,12 +15,8 @@ def _export_cc_sdk_impl(ctx):
         for lib in linker_input.libraries:
             archive = lib.pic_static_library or lib.static_library
             if not archive:
-                if linker_input.owner.workspace_name != "qigao_angle" or not lib.interface_library or not lib.dynamic_library:
-                    fail("Expected a static archive or a packaged ANGLE DLL for {}".format(linker_input.owner))
-                interfaces.append(lib.resolved_symlink_interface_library or lib.interface_library)
-                dynamic.append(lib.resolved_symlink_dynamic_library or lib.dynamic_library)
-            else:
-                libraries[archive] = libraries.get(archive, False) or lib.alwayslink
+                fail("Expected a static archive for {}".format(linker_input.owner))
+            libraries[archive] = libraries.get(archive, False) or lib.alwayslink
 
     manifest = ctx.actions.declare_file(ctx.label.name + ".json")
     ctx.actions.write(manifest, json.encode({
@@ -33,10 +27,8 @@ def _export_cc_sdk_impl(ctx):
         "system_includes": compilation.system_includes.to_list(),
         "libraries": [[archive.path, alwayslink] for archive, alwayslink in libraries.items()],
         "link_flags": flags,
-        "interface_libraries": [file.path for file in interfaces],
-        "dynamic_libraries": [file.path for file in dynamic],
     }))
-    return [DefaultInfo(files = depset([manifest] + libraries.keys() + interfaces + dynamic, transitive = [compilation.headers]))]
+    return [DefaultInfo(files = depset([manifest] + libraries.keys(), transitive = [compilation.headers]))]
 
 export_cc_sdk = rule(
     implementation = _export_cc_sdk_impl,

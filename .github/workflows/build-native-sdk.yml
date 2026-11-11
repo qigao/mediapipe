@@ -82,7 +82,6 @@ jobs:
       - uses: actions/cache@v6.1.0
         with:
           path: |
-            build-angle/downloads
             build-sdk/downloads
             build-sdk/repository-cache
             build-sdk/disk-cache
@@ -93,14 +92,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends libegl-dev libgles-dev
-      - name: Build Vulkan-only ANGLE
-        if: matrix.target == 'windows'
-        shell: bash
-        env:
-          ARCH: ${{ matrix.arch }}
-          MINGW_ROOT: ${{ steps.mingw.outputs.root }}
-        run: |
-          python -B sdk/build_angle.py --arch "$ARCH" --compiler "$MINGW_ROOT"
       - name: Build the pinned MediaPipe SDK
         shell: bash
         env:
@@ -136,7 +127,7 @@ jobs:
           fi
           args=(--target "$TARGET" --arch "$ARCH" --bazel "$bazel")
           if [[ "$TARGET" == windows ]]; then
-            args+=(--compiler "$MINGW_ROOT" --angle build-angle/package)
+            args+=(--compiler "$MINGW_ROOT")
           fi
           "$python_cmd" -B sdk/build.py "${args[@]}"
       - uses: actions/upload-artifact@v7.0.2

@@ -1,9 +1,9 @@
 diff --git a/WORKSPACE b/WORKSPACE
 --- a/WORKSPACE
 +++ b/WORKSPACE
-@@ -881,6 +881,7 @@
+@@ -880,6 +880,7 @@
+         "@//third_party:litert_custom_ops.diff",
          "@//third_party:litert_internal_fbs_fix.diff",
-         "@//third_party:litert_angle_windows.diff",
          "@//third_party:litert_mingw.diff",
 +        "@//third_party:litert_dispatch_windows.diff",
      ],

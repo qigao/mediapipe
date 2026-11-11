@@ -36,10 +36,10 @@ diff --git a/WORKSPACE b/WORKSPACE
      ],
      sha256 = _TENSORFLOW_SHA256,
      strip_prefix = "tensorflow-%s" % _TENSORFLOW_GIT_COMMIT,
-@@ -873,6 +880,7 @@
+@@ -872,6 +879,7 @@
+         "@//third_party:litert_rules_python_and_strict_deps.diff",
          "@//third_party:litert_custom_ops.diff",
          "@//third_party:litert_internal_fbs_fix.diff",
-         "@//third_party:litert_angle_windows.diff",
 +        "@//third_party:litert_mingw.diff",
      ],
      sha256 = "ec32db733e93501c693a8ab99e413c2d5d746dee7d452a8d6912046d7bc5c04e",

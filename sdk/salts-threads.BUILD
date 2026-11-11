@@ -1,7 +1,7 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 # Compile the released Salts implementation unchanged as a private static
-# dependency of MediaPipe's GL context and pthreadpool.
+# dependency of XNNPACK's pthreadpool on Windows.
 cc_library(
     name = "threads",
     srcs = [

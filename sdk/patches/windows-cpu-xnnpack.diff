@@ -1,0 +1,20 @@
+--- a/mediapipe/tasks/cc/core/base_options.cc
++++ b/mediapipe/tasks/cc/core/base_options.cc
+@@ -246,6 +246,9 @@
+   }
+   switch (base_options->delegate) {
+     case BaseOptions::Delegate::CPU:
++#ifdef _WIN32
++      base_options_proto.mutable_acceleration()->mutable_xnnpack();
++#else
+       if (use_litert) {
+         base_options_proto.mutable_acceleration()
+             ->mutable_litert()
+@@ -257,6 +260,7 @@
+         SetDelegateOptionsOrDie<BaseOptions::CpuOptions>(base_options,
+                                                          base_options_proto);
+       }
++#endif
+       break;
+     case BaseOptions::Delegate::GPU:
+       if (use_litert) {

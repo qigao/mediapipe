@@ -63,7 +63,7 @@ def apply_source_patch(source, patch, ceiling):
                    env=os.environ | {"GIT_CEILING_DIRECTORIES": str(ceiling)})
 
 
-def prepare(work, downloads, target, profile, angle=None, compiler=None):
+def prepare(work, downloads, target, profile, compiler=None):
     source = work / "mediapipe"
     ocv = work / "ocv"
     source.mkdir(parents=True)
@@ -97,10 +97,8 @@ def prepare(work, downloads, target, profile, angle=None, compiler=None):
             subprocess.run(["tar", "-xzf", archive, "--strip-components=1", "-C", salts], check=True)
             (salts / "WORKSPACE").write_text('workspace(name = "qigao_salts_threads")\n')
             shutil.copyfile(SDK / "salts-threads.BUILD", salts / "BUILD.bazel")
-            (angle / "WORKSPACE").write_text('workspace(name = "qigao_angle")\n')
-            shutil.copyfile(SDK / "angle.BUILD", angle / "BUILD.bazel")
-            for name, path in (("qigao_salts_threads", salts), ("qigao_angle", angle)):
-                stream.write(f'\nlocal_repository(name = "{name}", path = {json.dumps(path.as_posix())})\n')
+            stream.write('\nlocal_repository(name = "qigao_salts_threads", '
+                         f'path = {json.dumps(salts.as_posix())})\n')
     for patch in sorted((SDK / "patches").glob("*.diff")):
         apply_source_patch(source, patch, work)
     if target == "windows":
@@ -129,14 +127,14 @@ def prepare(work, downloads, target, profile, angle=None, compiler=None):
     return source, ocv
 
 
-def copy_paths(execroot, paths, dest):
+def copy_paths(artifact_source, paths, dest):
     for name in paths:
         path = Path(name)
         if path.is_absolute() or ".." in path.parts:
             raise ValueError(f"Expected an execroot-relative path, got {name}")
         target = dest / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(execroot / path, target)
+        shutil.copyfile(artifact_source(path), target)
 
 
 def cmake_link_flags(flags, target):
@@ -166,7 +164,7 @@ def write_cmake(manifest, prefix, target, profile):
         "if(TARGET MediaPipe::Tasks)",
         "  return()",
         "endif()",
-        "set(MediaPipe_GPU_ENABLED TRUE)",
+        f'set(MediaPipe_GPU_ENABLED {"FALSE" if target == "windows" else "TRUE"})',
         f'set(MediaPipe_SDK_PLATFORM "{profile}")',
         "add_library(MediaPipe::Tasks INTERFACE IMPORTED)",
         "target_compile_features(MediaPipe::Tasks INTERFACE cxx_std_20)",
@@ -176,15 +174,14 @@ def write_cmake(manifest, prefix, target, profile):
     if target == "macos":
         lines.append(f'set(MediaPipe_MACOS_MINIMUM "{MACOS_MINIMUM}")')
     if target == "windows":
-        lines += [
-            'set(MediaPipe_GPU_BACKEND "angle-vulkan")',
-            'set(MediaPipe_RUNTIME_DLLS "${_mp_root}/bin/libEGL_qigao_mp.dll" "${_mp_root}/bin/libGLESv2_qigao_mp.dll")',
-        ]
+        lines.append('set(MediaPipe_CPU_DELEGATE "xnnpack")')
     definitions = list(manifest["defines"])
     if target == "linux":
         definitions.extend(LINUX_DEFINES)
+    if target == "windows":
+        definitions.append("MEDIAPIPE_DISABLE_GPU=1")
     lines.append("target_compile_definitions(MediaPipe::Tasks INTERFACE " +
-                 " ".join(json.dumps(value) for value in definitions) + ")")
+                 " ".join(json.dumps(value) for value in dict.fromkeys(definitions)) + ")")
     for key, system in (("includes", ""), ("system_includes", " SYSTEM")):
         includes = [f'"${{_mp_root}}/include/{path}"' for path in manifest[key]]
         if includes:
@@ -204,8 +201,6 @@ def write_cmake(manifest, prefix, target, profile):
     link.extend(cmake_link_flags(manifest["link_flags"], target))
     if target == "macos":
         link.append("-lobjc")
-    for path in manifest["interface_libraries"]:
-        link.append(f'"${{_mp_root}}/lib/archives/{path}"')
     lines.append("target_link_libraries(MediaPipe::Tasks INTERFACE\n  " +
                  "\n  ".join(link) + "\n)")
     lines.append("unset(_mp_root)")
@@ -222,38 +217,46 @@ def write_cmake(manifest, prefix, target, profile):
     )
 
 
-def stage(execroot, manifest, prefix, source, ocv, target, profile):
-    calculator = "inference_calculator_metal" if target == "macos" else "inference_calculator_gl_advanced"
+def stage(output_base, output_path, manifest, prefix, source, ocv, target, profile):
+    external = output_base / "external"
+    # Read the real artifact locations even when Bazel's execution root does
+    # not contain the source repository symlinks.
+    artifact_roots = {"external": external, "bazel-out": output_path}
+
+    def artifact_source(path):
+        root, *relative = path.parts
+        if root in artifact_roots:
+            return artifact_roots[root].joinpath(*relative)
+        return source / path
+
+    calculator = {"windows": "inference_calculator_xnnpack", "macos": "inference_calculator_metal"}.get(
+        target, "inference_calculator_gl_advanced")
     if not any(alwayslink and Path(path).stem.removesuffix(".pic") == f"lib{calculator}"
                for path, alwayslink in manifest["libraries"]):
-        raise ValueError(f"{profile} did not retain the {calculator} GPU calculator")
+        raise ValueError(f"{profile} did not retain the {calculator} calculator")
     include = prefix / "include"
-    copy_paths(execroot, manifest["headers"], include)
+    copy_paths(artifact_source, manifest["headers"], include)
     for key in ("includes", "quote_includes", "system_includes"):
         for path in manifest[key]:
             if Path(path).is_absolute() or ".." in Path(path).parts:
                 raise ValueError(f"Nonrelocatable include directory: {path}")
             (include / path).mkdir(parents=True, exist_ok=True)
-    copy_paths(execroot, (path for path, _ in manifest["libraries"]), prefix / "lib/archives")
-    copy_paths(execroot, manifest["interface_libraries"], prefix / "lib/archives")
-    for path in manifest["dynamic_libraries"]:
-        dest = prefix / "bin" / Path(path).name
-        dest.parent.mkdir(exist_ok=True)
-        shutil.copyfile(execroot / path, dest)
+    copy_paths(artifact_source, (path for path, _ in manifest["libraries"]), prefix / "lib/archives")
     write_cmake(manifest, prefix, target, profile)
     metadata = {
         "mediapipe_version": MEDIAPIPE_VERSION,
         "mediapipe_commit": MEDIAPIPE_COMMIT,
         "opencv_sdk_version": OCV_VERSION,
         "platform": profile,
-        "gpu": True,
-        "gpu_backend": {"macos": "metal", "windows": "angle-vulkan"}.get(target, "egl-opengles"),
+        "gpu": target != "windows",
+        "gpu_backend": {"macos": "metal", "windows": None}.get(target, "egl-opengles"),
     }
     if target == "android":
         metadata.update(android_api=ANDROID_API, android_ndk=ANDROID_NDK)
     if target == "macos":
         metadata["macos_minimum"] = MACOS_MINIMUM
     if target == "windows":
+        metadata["cpu_delegate"] = "xnnpack"
         metadata["salts_threads_version"] = SALTS_BASE_VERSION
     (prefix / "manifest.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     notices = prefix / "licenses"
@@ -266,7 +269,7 @@ def stage(execroot, manifest, prefix, source, ocv, target, profile):
         for index, part in enumerate(Path(path).parts[:-1]) if part == "external"
     }
     for repository in sorted(repositories - {"qigao_ocv"}):
-        root = execroot / "external" / repository
+        root = external / repository
         for entry in root.iterdir():
             if entry.is_file() and entry.name.upper().startswith(("LICENSE", "COPYING", "NOTICE")):
                 target = notices / repository / entry.name
@@ -276,6 +279,7 @@ def stage(execroot, manifest, prefix, source, ocv, target, profile):
 
 def build_flags(target, arch):
     flags = [
+        "--repo_env=DO_NOT_TRACK=1",
         "--repo_env=HERMETIC_PYTHON_VERSION=3.12",
         "--action_env=PYTHONHASHSEED=0",
         "--cxxopt=-std=c++20",
@@ -309,6 +313,9 @@ def build_flags(target, arch):
             "--host_copt=-DNOMINMAX",
             "--copt=-D_USE_MATH_DEFINES",
             "--host_copt=-D_USE_MATH_DEFINES",
+            "--define=MEDIAPIPE_DISABLE_GPU=1",
+            "--define=MEDIAPIPE_FORCE_CPU_INFERENCE=true",
+            "--define=tflite_with_xnnpack=true",
             "--define=xnn_enable_avx512fp16=false",
             "--define=xnn_enable_avx512amx=false",
         ]
@@ -327,7 +334,6 @@ def main():
     parser.add_argument("--bazel", required=True, type=Path)
     parser.add_argument("--out", default=Path("build-sdk"), type=Path)
     parser.add_argument("--jobs", default=4, type=int)
-    parser.add_argument("--angle", type=Path, help="ANGLE/Vulkan installation for the Windows target")
     parser.add_argument("--compiler", type=Path, help="LLVM-MinGW installation for Windows")
     args = parser.parse_args()
     host_arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower())
@@ -344,9 +350,8 @@ def main():
             parser.error(f"Android requires NDK {ANDROID_NDK}.")
         os.environ["ANDROID_NDK_HOME"] = str(ndk)
     elif args.target == "windows":
-        if host != "Windows" or arch != host_arch or not args.angle or not args.compiler:
-            parser.error("Windows requires a native host, --angle, and --compiler.")
-        args.angle = args.angle.resolve()
+        if host != "Windows" or arch != host_arch or not args.compiler:
+            parser.error("Windows requires a native host and --compiler.")
         args.compiler = args.compiler.resolve()
     elif host != {"linux": "Linux", "macos": "Darwin"}[args.target] or arch != host_arch:
         parser.error("Linux and macOS SDKs must be built on the target OS and architecture.")
@@ -359,7 +364,7 @@ def main():
     downloads.mkdir(parents=True, exist_ok=True)
     if work.exists():
         shutil.rmtree(work)
-    source, ocv = prepare(work, downloads, args.target, profile, args.angle, args.compiler)
+    source, ocv = prepare(work, downloads, args.target, profile, args.compiler)
     bazel = [args.bazel.resolve(), f"--output_user_root={out / 'bazel'}"]
     flags = build_flags(args.target, arch)
     cache_flags = [f"--disk_cache={out / 'disk-cache'}",
@@ -375,19 +380,18 @@ def main():
             "--test_output=errors", "//qigao_sdk/windows:threads_lifecycle_test",
         ], cwd=source, check=True)
     info = dict(line.split(": ", 1) for line in subprocess.check_output(
-        [*bazel, "info", "-c", "opt", *cache_flags, *flags, "execution_root", "bazel-bin"],
+        [*bazel, "info", "-c", "opt", *cache_flags, *flags, "output_base", "output_path", "bazel-bin"],
         cwd=source, text=True,
     ).splitlines())
-    execroot = Path(info["execution_root"])
+    output_base = Path(info["output_base"])
+    output_path = Path(info["output_path"])
     manifest = json.loads((Path(info["bazel-bin"]) / "qigao_sdk/native.json").read_text(encoding="utf-8"))
     prefix = out / "package"
     if prefix.exists():
         shutil.rmtree(prefix)
-    stage(execroot, manifest, prefix, source, ocv, args.target, profile)
+    stage(output_base, output_path, manifest, prefix, source, ocv, args.target, profile)
     if args.target == "windows":
-        shutil.copytree(args.angle / "licenses", prefix / "licenses/ANGLE")
         shutil.copyfile(work / "salts-threads/LICENSE", prefix / "licenses/SaltsBase")
-        shutil.copyfile(args.angle / "manifest.json", prefix / "angle-manifest.json")
     archive = out / f"mediapipe-tasks-{MEDIAPIPE_VERSION}-{profile}.tar.gz"
     subprocess.run(["tar", "-czf", archive, "-C", prefix, "."], check=True)
     print(archive)
