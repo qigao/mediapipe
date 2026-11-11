@@ -56,6 +56,13 @@ def verify(path, checksum, digest):
         raise ValueError(f"SHA-256 mismatch for {path}: expected {checksum}, got {actual}")
 
 
+def apply_source_patch(source, patch, ceiling):
+    # Git for Windows may check the patch out with CRLF. Source tarballs use LF.
+    subprocess.run(["git", "apply", "-"], cwd=source, check=True,
+                   input=patch.read_bytes().replace(b"\r\n", b"\n"),
+                   env=os.environ | {"GIT_CEILING_DIRECTORIES": str(ceiling)})
+
+
 def prepare(work, downloads, target, profile, angle=None, compiler=None):
     source = work / "mediapipe"
     ocv = work / "ocv"
@@ -95,8 +102,7 @@ def prepare(work, downloads, target, profile, angle=None, compiler=None):
             for name, path in (("qigao_salts_threads", salts), ("qigao_angle", angle)):
                 stream.write(f'\nlocal_repository(name = "{name}", path = {json.dumps(path.as_posix())})\n')
     for patch in sorted((SDK / "patches").glob("*.diff")):
-        subprocess.run(["git", "apply", patch], cwd=source, check=True,
-                       env=os.environ | {"GIT_CEILING_DIRECTORIES": str(work)})
+        apply_source_patch(source, patch, work)
     package = source / "qigao_sdk"
     package.mkdir()
     for name in ("BUILD.bazel", "export.bzl"):

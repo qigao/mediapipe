@@ -11,7 +11,7 @@ import subprocess
 import tarfile
 import zipfile
 
-from build import SDK, fetch
+from build import SDK, apply_source_patch, fetch
 
 
 def gitiles_tree_sha256(path):
@@ -63,8 +63,7 @@ def prepare(out):
         archive.extractall(gn_dir)
     rc = fetch(downloads, lock["rc"]["url"], lock["rc"]["sha256"], "chromium-rc.exe")
     shutil.copyfile(rc, source / "build/toolchain/win/rc/win/rc.exe")
-    subprocess.run(["git", "apply", SDK / "angle-windows.diff"], cwd=source, check=True,
-                   env=os.environ | {"GIT_CEILING_DIRECTORIES": str(out)})
+    apply_source_patch(source, SDK / "angle-windows.diff", out)
     return source, gn_dir / "gn.exe", lock
 
 
