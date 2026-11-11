@@ -36,11 +36,14 @@ def check_runtime(library):
 
 def check_android(library, arch, readelf):
     output = subprocess.check_output(
-        [readelf, "--file-header", "--program-headers", "--dyn-syms", "--wide", library], text=True,
+        [readelf, "--file-header", "--program-headers", "--dynamic", "--dyn-syms", "--wide", library],
+        text=True,
     )
     machine = {"x64": "Advanced Micro Devices X86-64", "arm64": "AArch64"}[arch]
     if not re.search(rf"Machine:\s+{re.escape(machine)}$", output, re.MULTILINE):
         raise SystemExit(f"{library.name} has the wrong Android architecture for {arch}")
+    if not re.search(r"\(SONAME\).*\[libmediapipe\.so\]", output):
+        raise SystemExit(f"{library.name} has the wrong Android SONAME")
     alignments = re.findall(r"^\s*LOAD .+ (0x[0-9a-fA-F]+)$", output, re.MULTILINE)
     if not alignments or min(int(alignment, 16) for alignment in alignments) < 16384:
         raise SystemExit(f"{library.name} requires 16 KiB ELF load alignment")

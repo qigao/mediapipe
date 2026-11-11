@@ -71,6 +71,7 @@ jobs:
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
           $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           "BAZEL_VC=$(Join-Path $vs 'VC')" >> $env:GITHUB_ENV
+          "BAZEL_ROOT=$env:SystemDrive/b" >> $env:GITHUB_ENV
       - name: Build the pinned MediaPipe SDK
         shell: bash
         env:
@@ -92,7 +93,7 @@ jobs:
                 os.environ["BAZEL_SHA"])
           PY
           python -B sdk/build.py --target windows --arch "$ARCH" --windows-toolchain msvc --shared \
-            --bazel "$RUNNER_TEMP/$BAZEL_ASSET" \
+            --bazel "$RUNNER_TEMP/$BAZEL_ASSET" --bazel-root "$BAZEL_ROOT" \
             --opencv-archive "opencv-sdk/opencv-4.11.0-static-windows-$ARCH-msvc.tar.gz"
       - uses: actions/upload-artifact@v7.0.2
         with:

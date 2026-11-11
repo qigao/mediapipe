@@ -376,6 +376,7 @@ def main():
     parser.add_argument("--target", choices=["linux", "android", "macos", "windows"], default="linux")
     parser.add_argument("--arch", choices=["x64", "arm64"])
     parser.add_argument("--bazel", required=True, type=Path)
+    parser.add_argument("--bazel-root", type=Path, help="Bazel output user root")
     parser.add_argument("--out", default=Path("build-sdk"), type=Path)
     parser.add_argument("--jobs", default=4, type=int)
     parser.add_argument("--compiler", type=Path, help="LLVM-MinGW installation for Windows")
@@ -423,13 +424,15 @@ def main():
     if work.exists():
         shutil.rmtree(work)
     source, ocv = prepare(work, downloads, args.target, profile, args.compiler, args.opencv_archive)
-    bazel = [args.bazel.resolve(), f"--output_user_root={out / 'bazel'}"]
+    bazel_root = args.bazel_root.resolve() if args.bazel_root else out / "bazel"
+    bazel = [args.bazel.resolve(), f"--output_user_root={bazel_root}"]
     flags = build_flags(args.target, arch, msvc)
     targets = ["//qigao_sdk:native"]
     if args.shared:
         targets.append("//mediapipe/tasks/c:libmediapipe")
         if args.target == "windows" and not msvc:
-            flags.append("--per_file_copt=mediapipe/tasks/c/.*[.]cc$@-DMP_EXPORT=__declspec(dllexport)")
+            flags += ["--per_file_copt=mediapipe/tasks/c/.*[.]cc$@-DMP_EXPORT=__declspec(dllexport)",
+                      "--linkopt=-static"]
         if args.target == "android":
             flags += ["--linkopt=-Wl,-z,max-page-size=16384",
                       "--linkopt=-Wl,-z,common-page-size=16384"]
