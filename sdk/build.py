@@ -341,6 +341,7 @@ def build_flags(target, arch, msvc=False):
                 f"--extra_toolchains=@local_config_cc//:cc-toolchain-{cpu}",
                 "--compiler=msvc-cl",
                 "--define=protobuf_allow_msvc=true",
+                "--per_file_copt=farmhash[.]cc$@/DFARMHASH_NO_BUILTIN_EXPECT",
                 "--conlyopt=/std:c11",
                 "--conlyopt=/experimental:c11atomics",
                 "--copt=/DNOMINMAX",
