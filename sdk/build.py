@@ -355,10 +355,12 @@ def main():
             *bazel, "test", "-c", "opt", f"--jobs={args.jobs}", *cache_flags, *flags,
             "--test_output=errors", "//qigao_sdk/windows:threads_lifecycle_test",
         ], cwd=source, check=True)
-    execroot = Path(subprocess.check_output(
-        [*bazel, "info", *cache_flags, *flags, "execution_root"], cwd=source, text=True,
-    ).strip())
-    manifest = json.loads((source / "bazel-bin/qigao_sdk/native.json").read_text(encoding="utf-8"))
+    info = dict(line.split(": ", 1) for line in subprocess.check_output(
+        [*bazel, "info", "-c", "opt", *cache_flags, *flags, "execution_root", "bazel-bin"],
+        cwd=source, text=True,
+    ).splitlines())
+    execroot = Path(info["execution_root"])
+    manifest = json.loads((Path(info["bazel-bin"]) / "qigao_sdk/native.json").read_text(encoding="utf-8"))
     prefix = out / "package"
     if prefix.exists():
         shutil.rmtree(prefix)

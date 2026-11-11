@@ -127,8 +127,9 @@ def main():
     (prefix / "bin").mkdir(parents=True)
     (prefix / "lib").mkdir()
     shutil.copytree(source / "include", prefix / "include")
-    shutil.copytree(source / "third_party/vulkan-headers/src/include/vulkan",
-                    prefix / "include/vulkan")
+    for headers in ("vulkan", "vk_video"):
+        shutil.copytree(source / "third_party/vulkan-headers/src/include" / headers,
+                        prefix / "include" / headers)
     # ANGLE exposes a C DLL ABI. MediaPipe and GDMP retain LLVM-MinGW's C++
     # ABI; no ANGLE C++ symbols or MSVC import libraries cross that boundary.
     dlltool = args.compiler.resolve() / "bin/llvm-dlltool.exe"
