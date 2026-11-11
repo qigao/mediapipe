@@ -25,6 +25,11 @@ jobs:
     name: ${{ matrix.target }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    env:
+      SDK_CACHE_PATHS: |
+        build-sdk/downloads
+        build-sdk/repository-cache
+        build-sdk/disk-cache
     strategy:
       fail-fast: false
       matrix:
@@ -74,12 +79,10 @@ jobs:
         with:
           target: ${{ matrix.arch }}
           build-type: toolchain-only
-      - uses: actions/cache@v6.1.0
+      - uses: actions/cache/restore@v6.1.0
+        id: sdk-cache
         with:
-          path: |
-            build-sdk/downloads
-            build-sdk/repository-cache
-            build-sdk/disk-cache
+          path: ${{ env.SDK_CACHE_PATHS }}
           key: mediapipe-sdk-${{ matrix.target }}-${{ matrix.arch }}-${{ hashFiles('sdk/**') }}
           restore-keys: mediapipe-sdk-${{ matrix.target }}-${{ matrix.arch }}-
       - name: Stage EGL and OpenGL ES dependencies
@@ -115,7 +118,9 @@ jobs:
           bazel.chmod(0o755)
           PY
           bazel="$RUNNER_TEMP/$BAZEL_ASSET"
-          if [[ "$TARGET" == android ]]; then
+          if [[ "$TARGET" == linux ]]; then
+            export BAZEL_LINKOPTS=-L/usr/local/lib
+          elif [[ "$TARGET" == android ]]; then
             export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.3.13750724"
           fi
           args=(--target "$TARGET" --arch "$ARCH" --bazel "$bazel" --shared)
@@ -133,6 +138,11 @@ jobs:
           name: mediapipe-tasks-c-${{ matrix.target }}-${{ matrix.arch }}
           path: build-sdk/bin/libmediapipe.*
           if-no-files-found: error
+      - uses: actions/cache/save@v6.1.0
+        if: ${{ !cancelled() && steps.sdk-cache.outcome == 'success' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ${{ env.SDK_CACHE_PATHS }}
+          key: ${{ steps.sdk-cache.outputs.cache-primary-key }}
 
   release:
     if: startsWith(github.ref, 'refs/tags/sdk-v')
