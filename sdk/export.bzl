@@ -17,10 +17,10 @@ def _export_cc_sdk_impl(ctx):
         for lib in linker_input.libraries:
             archive = lib.pic_static_library or lib.static_library
             if not archive:
-                if not lib.interface_library or not lib.dynamic_library:
-                    fail("Expected a static archive or a DLL import library for {}".format(linker_input.owner))
-                interfaces.append(lib.interface_library)
-                dynamic.append(lib.dynamic_library)
+                if linker_input.owner.workspace_name != "qigao_angle" or not lib.interface_library or not lib.dynamic_library:
+                    fail("Expected a static archive or a packaged ANGLE DLL for {}".format(linker_input.owner))
+                interfaces.append(lib.resolved_symlink_interface_library or lib.interface_library)
+                dynamic.append(lib.resolved_symlink_dynamic_library or lib.dynamic_library)
             else:
                 libraries[archive] = libraries.get(archive, False) or lib.alwayslink
 

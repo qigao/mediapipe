@@ -7,3 +7,18 @@
 -  visual_studio_runtime_dirs = []
 +  visual_studio_runtime_dirs = getenv("SystemRoot") + "/System32"
  }
+--- a/build/toolchain/win/BUILD.gn
++++ b/build/toolchain/win/BUILD.gn
+@@ -13,9 +13,9 @@
+ # "environment.x86" and "environment.x64" to the build directory and return a
+ # list to us.
+ 
+-# Copy the VS runtime DLL for the default toolchain to the root build directory
+-# so things will run.
+-if (current_toolchain == default_toolchain) {
++# Non-component ANGLE DLLs use the static CRT (/MT). They need neither
++# MSVC runtime DLL copies nor the Windows debugger installation.
++if (current_toolchain == default_toolchain && is_component_build) {
+   if (is_debug) {
+     configuration_name = "Debug"
+   } else {
