@@ -92,5 +92,9 @@
       "url": "https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-amd64/+/git_revision:97b68a0bb62b7528bc3491c7949d6804223c2b82",
       "sha256": "344ffc1be0bed50491dc5ced875d4acd1ca790618aef52d2423882050683ea1a"
     }
+  },
+  "rc": {
+    "url": "https://storage.googleapis.com/chromium-browser-clang/rc/dea7da0d9bfcb8dad6cf53ca608dddac3459faaa",
+    "sha256": "903769d98df8a005c79d52d7089fe34f23c0b7ada4cd0c42b6063526a5593e6a"
   }
 }

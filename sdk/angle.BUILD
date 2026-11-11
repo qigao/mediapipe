@@ -3,13 +3,13 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 cc_import(
     name = "egl",
-    interface_library = "lib/libEGL.dll.a",
-    shared_library = "bin/libEGL.dll",
+    interface_library = "lib/libEGL_qigao_mp.lib",
+    shared_library = "bin/libEGL_qigao_mp.dll",
 )
 cc_import(
     name = "gles",
-    interface_library = "lib/libGLESv2.dll.a",
-    shared_library = "bin/libGLESv2.dll",
+    interface_library = "lib/libGLESv2_qigao_mp.lib",
+    shared_library = "bin/libGLESv2_qigao_mp.dll",
 )
 cc_library(
     name = "angle",

@@ -152,6 +152,11 @@ def write_cmake(manifest, prefix, target, profile):
         lines.append(f'set(MediaPipe_ANDROID_API "{ANDROID_API}")')
     if target == "macos":
         lines.append(f'set(MediaPipe_MACOS_MINIMUM "{MACOS_MINIMUM}")')
+    if target == "windows":
+        lines += [
+            'set(MediaPipe_GPU_BACKEND "angle-vulkan")',
+            'set(MediaPipe_RUNTIME_DLLS "${_mp_root}/bin/libEGL_qigao_mp.dll" "${_mp_root}/bin/libGLESv2_qigao_mp.dll")',
+        ]
     definitions = list(manifest["defines"])
     if target == "linux":
         definitions.extend(LINUX_DEFINES)

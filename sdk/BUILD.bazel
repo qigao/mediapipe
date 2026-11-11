@@ -25,7 +25,6 @@ export_cc_sdk(
         "//mediapipe/tasks/cc/text/text_embedder",
         "//mediapipe/tasks/cc/vision/face_detector",
         "//mediapipe/tasks/cc/vision/face_landmarker",
-        "//mediapipe/tasks/cc/vision/face_stylizer",
         "//mediapipe/tasks/cc/vision/gesture_recognizer",
         "//mediapipe/tasks/cc/vision/hand_landmarker",
         "//mediapipe/tasks/cc/vision/holistic_landmarker:holistic_landmarker_graph",

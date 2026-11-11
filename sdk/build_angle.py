@@ -61,6 +61,8 @@ def prepare(out):
     gn_dir.mkdir(exist_ok=True)
     with zipfile.ZipFile(gn_archive) as archive:
         archive.extractall(gn_dir)
+    rc = fetch(downloads, lock["rc"]["url"], lock["rc"]["sha256"], "chromium-rc.exe")
+    shutil.copyfile(rc, source / "build/toolchain/win/rc/win/rc.exe")
     return source, gn_dir / "gn.exe", lock
 
 
@@ -74,6 +76,13 @@ def main():
     parser.add_argument("--out", type=Path, default=Path("build-angle"))
     parser.add_argument("--jobs", type=int, default=4)
     args = parser.parse_args()
+    vswhere = Path(os.environ["ProgramFiles(x86)"]) / "Microsoft Visual Studio/Installer/vswhere.exe"
+    component = {"x64": "x86.x64", "arm64": "ARM64"}[args.arch]
+    installation = json.loads(subprocess.check_output([
+        vswhere, "-latest", "-products", "*", "-requires",
+        "Microsoft.VisualStudio.Component.VC.Tools." + component, "-format", "json", "-utf8",
+    ], encoding="utf-8"))[0]
+    sdk = Path(os.environ["ProgramFiles(x86)"]) / "Windows Kits/10"
     out = args.out.resolve()
     source, gn, lock = prepare(out)
     build = source / "out/Release"
@@ -82,11 +91,16 @@ def main():
         "target_os": "win", "target_cpu": args.arch,
         "is_debug": False, "is_component_build": False,
         "is_clang": True, "clang_base_path": args.clang.resolve().as_posix(),
+        "visual_studio_path": Path(installation["installationPath"]).as_posix(),
+        "visual_studio_version": installation["installationVersion"].split(".")[0],
+        "windows_sdk_path": sdk.as_posix(), "wdk_path": sdk.as_posix(),
+        "windows_sdk_version": "10.0.26100.0",
         "clang_use_chrome_plugins": False, "use_custom_libcxx": False,
         "use_sysroot": False, "use_siso": False, "use_remoteexec": False,
         "symbol_level": 0, "treat_warnings_as_errors": False,
         "angle_build_tests": False, "build_angle_deqp_tests": False,
         "angle_enable_vulkan": True, "angle_enable_gl": False,
+        "angle_libs_suffix": "_qigao_mp",
         "angle_use_custom_libvulkan": False,
         "angle_enable_d3d9": False, "angle_enable_d3d11": False,
         "angle_enable_metal": False, "angle_enable_wgpu": False,
@@ -118,10 +132,13 @@ def main():
     dlltool = args.compiler.resolve() / "bin/llvm-dlltool.exe"
     machine = {"x64": "i386:x86-64", "arm64": "arm64"}[args.arch]
     for name in ("libEGL", "libGLESv2"):
-        shutil.copyfile(build / (name + ".dll"), prefix / "bin" / (name + ".dll"))
+        dll_name = name + "_qigao_mp.dll"
+        shutil.copyfile(build / dll_name, prefix / "bin" / dll_name)
         definitions = source / "src" / name / (name + "_autogen.def")
-        subprocess.run([dlltool, "-m", machine, "-D", name + ".dll", "-d", definitions,
-                        "-l", prefix / "lib" / (name + ".dll.a")], check=True)
+        private_def = build / (name + "_qigao_mp.def")
+        private_def.write_text(definitions.read_text().replace("LIBRARY " + name, "LIBRARY " + dll_name))
+        subprocess.run([dlltool, "-m", machine, "-D", dll_name, "-d", private_def,
+                        "-l", prefix / "lib" / (name + "_qigao_mp.lib")], check=True)
     notices = prefix / "licenses"
     notices.mkdir()
     for path in [".", *lock["dependencies"]]:

@@ -15,7 +15,7 @@ Build with Bazel 7.7.0 and Clang (C++20). Install the EGL and OpenGL ES developm
 CC=clang CXX=clang++ python3 -B sdk/build.py --target linux --arch x64 --bazel /path/to/bazel
 ```
 
-Windows replaces the GL context's pthread calls with the unchanged C11 thread implementation from pinned SaltsBase 0.1.3 sources, compiled as a private static dependency. Its thread handles and TSS keys remain inside MediaPipe; there is no second Core DLL. ANGLE's official GN build produces Vulkan-only C API DLLs with clang-cl; GNU import libraries connect them to LLVM-MinGW-built MediaPipe/GDMP. SDK consumers must deploy `bin/libEGL.dll` and `bin/libGLESv2.dll` beside the application executable.
+Windows replaces the GL context's pthread calls with the unchanged C11 thread implementation from pinned SaltsBase 0.1.3 sources, compiled as a private static dependency. Its thread handles and TSS keys remain inside MediaPipe; there is no second Core DLL. ANGLE's official GN build produces Vulkan-only C API DLLs with clang-cl; GNU import libraries connect them to LLVM-MinGW-built MediaPipe/GDMP. `MediaPipe_RUNTIME_DLLS` lists the two ANGLE DLLs to deploy with the extension. Their names are unique to this SDK so they can coexist with an application's own ANGLE libraries.
 
 The Windows runtime explicitly selects ANGLE/Vulkan, requires GLES 3.1, and rejects CPU/software Vulkan devices. It uses device capabilities rather than an NVIDIA/Intel/AMD allowlist. No CUDA SDK is required. Explicit GPU requests never select CPU inference calculators. Building an archive is separate from physical-device qualification; Windows GPU inference and device selection remain tracked in [#2](https://github.com/qigao/mediapipe/issues/2).
 
