@@ -279,7 +279,7 @@ def build_flags(target, arch):
         flags += [
             "--enable_platform_specific_config=false",
             f"--platforms=//qigao_sdk/toolchains:windows_{arch}",
-            "--extra_toolchains=//qigao_sdk/toolchains:all",
+            "--extra_toolchains=//qigao_sdk/toolchains:toolchain_x64,//qigao_sdk/toolchains:toolchain_arm64",
             "--compiler=mingw-gcc",
             "--copt=-DNOMINMAX",
             "--host_copt=-DNOMINMAX",

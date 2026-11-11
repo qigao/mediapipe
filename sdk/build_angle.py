@@ -63,6 +63,8 @@ def prepare(out):
         archive.extractall(gn_dir)
     rc = fetch(downloads, lock["rc"]["url"], lock["rc"]["sha256"], "chromium-rc.exe")
     shutil.copyfile(rc, source / "build/toolchain/win/rc/win/rc.exe")
+    subprocess.run(["git", "apply", SDK / "angle-windows.diff"], cwd=source, check=True,
+                   env=os.environ | {"GIT_CEILING_DIRECTORIES": str(out)})
     return source, gn_dir / "gn.exe", lock
 
 
@@ -115,6 +117,7 @@ def main():
         name + " = " + json.dumps(value) for name, value in gn_args.items()) + "\n")
     env = os.environ | {"DEPOT_TOOLS_WIN_TOOLCHAIN": "0",
                         "DEPOT_TOOLS_UPDATE": "0",
+                        "GYP_MSVS_OVERRIDE_PATH": installation["installationPath"],
                         "GIT_CEILING_DIRECTORIES": str(source.parent)}
     subprocess.run([gn, "gen", build], cwd=source, env=env, check=True)
     subprocess.run(["ninja", "-C", build, f"-j{args.jobs}", "libEGL", "libGLESv2"],

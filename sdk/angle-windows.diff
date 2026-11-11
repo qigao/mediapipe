@@ -1,0 +1,9 @@
+--- a/build/config/win/visual_studio_version.gni
++++ b/build/config/win/visual_studio_version.gni
+@@ -52,5 +52,5 @@
+          "You must set the windows_sdk_version if you set the path")
+   assert(wdk_path != "",
+          "You must set the wdk_path if you set the visual studio path")
+-  visual_studio_runtime_dirs = []
++  visual_studio_runtime_dirs = ""
+ }

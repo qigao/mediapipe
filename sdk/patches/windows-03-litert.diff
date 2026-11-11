@@ -1,0 +1,26 @@
+--- a/WORKSPACE
++++ b/WORKSPACE
+@@ -871,6 +871,7 @@
+         "@//third_party:litert_rules_python_and_strict_deps.diff",
+         "@//third_party:litert_custom_ops.diff",
+         "@//third_party:litert_internal_fbs_fix.diff",
++        "@//third_party:litert_angle_windows.diff",
+     ],
+     sha256 = "ec32db733e93501c693a8ab99e413c2d5d746dee7d452a8d6912046d7bc5c04e",
+     strip_prefix = "LiteRT-2.3.0",
+--- /dev/null
++++ b/third_party/litert_angle_windows.diff
+@@ -0,0 +1,13 @@
++--- a/tflite/delegates/gpu/gl/BUILD
+++++ b/tflite/delegates/gpu/gl/BUILD
++@@ -423,6 +423,10 @@
++         "portable_egl.h",
++         "portable_gl31.h",
++     ],
+++    deps = select({
+++        "@platforms//os:windows": ["@qigao_angle//:angle"],
+++        "//conditions:default": [],
+++    }),
++ )
++ 
++ cc_library(
