@@ -50,11 +50,6 @@ jobs:
             bazel: bazel-7.7.0-linux-x86_64
             bazel_sha: fe7e799cbc9140f986b063e06800a3d4c790525075c877d00a7112669824acbf
           - target: macos
-            arch: x64
-            runner: macos-15-intel
-            bazel: bazel-7.7.0-darwin-x86_64
-            bazel_sha: 5b254d6c51081502938835969be160e62aeb8799e5b00b2d3acfa0465d6ae7c8
-          - target: macos
             arch: arm64
             runner: macos-15
             bazel: bazel-7.7.0-darwin-arm64
