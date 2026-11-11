@@ -34,21 +34,26 @@ MACOS_MINIMUM = "15.0"
 LINUX_DEFINES = ["EGL_NO_X11", "MESA_EGL_NO_X11_HEADERS"]
 
 
-def fetch(downloads, url, checksum, name=None):
+def file_sha256(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def fetch(downloads, url, checksum, name=None, *, digest=file_sha256):
     archive = downloads / (name or url.rsplit("/", 1)[-1])
     if not archive.exists():
         partial = archive.with_suffix(".part")
         subprocess.run(["curl", "-fsSL", "--retry", "3", url, "-o", partial], check=True)
-        verify(partial, checksum)
+        verify(partial, checksum, digest)
         partial.replace(archive)
-    verify(archive, checksum)
+    verify(archive, checksum, digest)
     return archive
 
 
-def verify(path, checksum):
-    with path.open("rb") as stream:
-        if hashlib.file_digest(stream, "sha256").hexdigest() != checksum:
-            raise ValueError(f"SHA-256 mismatch for {path}")
+def verify(path, checksum, digest):
+    actual = digest(path)
+    if actual != checksum:
+        raise ValueError(f"SHA-256 mismatch for {path}: expected {checksum}, got {actual}")
 
 
 def prepare(work, downloads, target, profile, angle=None, compiler=None):

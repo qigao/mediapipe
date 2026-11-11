@@ -4,83 +4,83 @@
   "dependencies": {
     "build": {
       "url": "https://chromium.googlesource.com/chromium/src/build/+archive/169fcf699b64d2d5e75a391beaec8a7ad6e41a7f.tar.gz",
-      "sha256": "2cb48b909a0b6bc9e2526c31c40105398938362247484f01f211bfdc3d1a5fc0"
+      "tree_sha256": "5fcb501597451d671acba7ca2d17087684f82810858821f07d5edabdaa8d9e64"
     },
     "buildtools": {
       "url": "https://chromium.googlesource.com/chromium/src/buildtools/+archive/5b7491dfe58d387aaf1391749afdfbaa19dcbb89.tar.gz",
-      "sha256": "b27f99d9a37f57a3cd89e8c157888c82b799200313722598bbe38194298401a2"
+      "tree_sha256": "f65acb4b5e03b7d4742d82f53925931bc1cbe4413a7226037117c2c7a628da1e"
     },
     "testing": {
       "url": "https://chromium.googlesource.com/chromium/src/testing/+archive/0d5210a4b1978e7e2c6b8623c719dff0a0994a8f.tar.gz",
-      "sha256": "21e8df82d38748f4d856509f7bcf8fbdfd2812f7f449eb9baf3a00c3c7a70a10"
+      "tree_sha256": "6d2624a5f0cd7799daba741537b27a9a399fe5a48019d4d90ab76763f6e33022"
     },
     "third_party/abseil-cpp": {
       "url": "https://chromium.googlesource.com/chromium/src/third_party/abseil-cpp/+archive/e3d58ba1a2a04f85225c3c04fa4603bb64399b2c.tar.gz",
-      "sha256": "ea9fd73d3cb80bb7762514c9b6b8eab1f3bc4135858a274a685ab7811ae40926"
+      "tree_sha256": "54e1f884352c5f16b40e7c0e3e9f3d41cfdd0edddfeac4dec56c2e420309b83a"
     },
     "third_party/depot_tools": {
       "url": "https://chromium.googlesource.com/chromium/tools/depot_tools/+archive/8f878438075a8d5d76f57bd10ab866d58d706319.tar.gz",
-      "sha256": "52134648063ce43f30885d6abcdd335c11a412409f0c0f617b71abbf8a0c8443"
+      "tree_sha256": "abb7c5b1d01685754dac22a3f731f6998b6ebd70018ecdaa55914b29acfb1119"
     },
     "third_party/glslang/src": {
       "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/glslang/+archive/21b4e37133868b3a50ef15fc027ecd6d3a52c875.tar.gz",
-      "sha256": "5eb152119a4973096cd1d315186a994bfdf63ff1fc28a69f896a2a533e069f80"
+      "tree_sha256": "6eb13262da5e0f1896262ac081222eed43e08221e5ea6e1f06b5c6dd3e66cf3b"
     },
     "third_party/spirv-headers/src": {
       "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Headers/+archive/2a611a970fdbc41ac2e3e328802aed9985352dca.tar.gz",
-      "sha256": "9d167e0bab34bec53bf4aaa5a47b99a3fbb6c2a0d6bf1e93963f725e8074f806"
+      "tree_sha256": "b4dc3669eb1fdb0153aad5a24e0d60f615b5b2d5d364e825e09d993618f2b607"
     },
     "third_party/spirv-tools/src": {
       "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Tools/+archive/108b19e5c6979f496deffad4acbe354237afa7d3.tar.gz",
-      "sha256": "fed9804c94e65099a92efc7c30605ce5428e94b2e3d2cf5ea5b8f99de5228a82"
+      "tree_sha256": "f93a1839a47fe45dcdc201966de8c6286ba4175915e09184ff4ffc298f8e51e5"
     },
     "third_party/spirv-cross/src": {
       "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Cross/+archive/b8fcf307f1f347089e3c46eb4451d27f32ebc8d3.tar.gz",
-      "sha256": "26e6283951c5fd12e909f2cdb93d9d217974c0b4a2b4fd6c8288cda90378e996"
+      "tree_sha256": "91359273be98c04bdcd59aae6d91f3f266b245fad4c4c26affffd230b780fb2b"
     },
     "third_party/vulkan-headers/src": {
       "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers/+archive/10739e8e00a7b6f74d22dd0a547f1406ff1f5eb9.tar.gz",
-      "sha256": "8589c6f54d758266d2a4bce4e6da2e58a1359a11b1bea0a8f4c2086303bbec03"
+      "tree_sha256": "f163e4bca8704089232fdcbf1c0f4bc4ca9c2e109b5a395b09684944f7fc3300"
     },
     "third_party/vulkan-loader/src": {
       "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader/+archive/c8a2c8c9164a58ce71c1c77104e28e8de724539e.tar.gz",
-      "sha256": "66583ae528ed8a1a569043476df9cd97fa35f3eb4bc76040ea2c044ea500fb7a"
+      "tree_sha256": "933006d798073a2e105d800cce05afdc5c4b3b5b3819e44ebff1b9fea4c04631"
     },
     "third_party/vulkan-deps": {
       "url": "https://chromium.googlesource.com/vulkan-deps/+archive/317a1e4780ef130e7b92fc287cf390ac2aff0c22.tar.gz",
-      "sha256": "b00ffb2cd1cd5c7b9eb879a7ac41f9b4bb16892378defdd5a115593f8094e4fd"
+      "tree_sha256": "1e4fadb967e8af3c8a864b2c145e44ab11f7566c4d06fad5d2d7fcb176b12434"
     },
     "third_party/zlib": {
       "url": "https://chromium.googlesource.com/chromium/src/third_party/zlib/+archive/4028ebf8710ee39d2286cb0f847f9b95c59f84d8.tar.gz",
-      "sha256": "688b8422d40efac4256f70cd296198d6dc2b5e3305a9870cb0766462d0bd2942"
+      "tree_sha256": "bf8e7375c1e7bbfceabe39124e3b0016f4a61e6fdbd06ed88479da74c628a41e"
     },
     "third_party/jinja2": {
       "url": "https://chromium.googlesource.com/chromium/src/third_party/jinja2/+archive/c3027d884967773057bf74b957e3fea87e5df4d7.tar.gz",
-      "sha256": "772d9f3407638ab61e41f2561c35fa43221d384f8dbe2af296caabd07a14e6a6"
+      "tree_sha256": "2915b7c51bf80c1200f2df3a6990a87c3e1d901ad0ae160822c8a14e9c89141a"
     },
     "third_party/markupsafe": {
       "url": "https://chromium.googlesource.com/chromium/src/third_party/markupsafe/+archive/4256084ae14175d38a3ff7d739dca83ae49ccec6.tar.gz",
-      "sha256": "fb035a39d646256543d9da043a8b35039b2585737c9808afb272e367f91a8626"
+      "tree_sha256": "0269514ae46a00eb0e25e982d07256fd98a4b5456c85c00e4a46361584d80559"
     },
     "tools/clang": {
       "url": "https://chromium.googlesource.com/chromium/src/tools/clang/+archive/ae0ff7090810342e6c7c378521bd78e79ed63bad.tar.gz",
-      "sha256": "22bbad6092a348999d121d368ebfed846790003de0128dc70334a84ca06146f0"
+      "tree_sha256": "a6466d709c0867981cebece5265a6132c210cf24cf4d7e8ca19333e682f806af"
     },
     "third_party/jsoncpp": {
       "url": "https://chromium.googlesource.com/chromium/src/third_party/jsoncpp/+archive/f62d44704b4da6014aa231cfc116e7fd29617d2a.tar.gz",
-      "sha256": "af390c84887b8fcb1664585cc28b69ada7da30ef4990a87bfc1ff36e3d4bd398"
+      "tree_sha256": "e7319ec498d433dcaa6ba2431bf231243b40cddafad46d3bd89387e748c6cee4"
     },
     "third_party/vulkan_memory_allocator": {
       "url": "https://chromium.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/+archive/56300b29fbfcc693ee6609ddad3fdd5b7a449a21.tar.gz",
-      "sha256": "a426a06351f665d44e2359d0e13b429f7b0dfb272daab67c11ae395812304c5e"
+      "tree_sha256": "c65a29b190aad96788e5fcde97d86bd28c21c6c698fa700faa375e19bf25b92e"
     },
     "third_party/vulkan-utility-libraries/src": {
       "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Utility-Libraries/+archive/0f0babb553a60da5971d9f4d40cf720ce01602f1.tar.gz",
-      "sha256": "a8e670170fe36336b51366a6434a26afc2bddabeeeba5f7d0bbddf565c3edefa"
+      "tree_sha256": "d54c6b8bdae3d1acf7c27f5ed4a9b9f9ac02d483406ca3cbf1ae5da10fed68ab"
     },
     "third_party/jsoncpp/source": {
       "url": "https://chromium.googlesource.com/external/github.com/open-source-parsers/jsoncpp/+archive/42e892d96e47b1f6e29844cc705e148ec4856448.tar.gz",
-      "sha256": "464b6fb8844c9c003d1bcea32d5055d42f6a2791c36b2c5555bf8542558483fb"
+      "tree_sha256": "b7e1afd7a6b22fa0152a4667bc2efd58ea4c11f7479a636b7552270c29904791"
     }
   },
   "gn": {

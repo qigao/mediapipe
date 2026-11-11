@@ -2,14 +2,30 @@
 """Build pinned, Vulkan-only ANGLE DLLs for the MediaPipe Windows SDK."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import zipfile
 
 from build import SDK, fetch
+
+
+def gitiles_tree_sha256(path):
+    # Gitiles regenerates tar/gzip containers. Verify the paths, entry types,
+    # modes, symlink targets, and bytes independently of archive timestamps.
+    result = hashlib.sha256()
+    with tarfile.open(path, "r:gz") as archive:
+        for member in sorted(archive, key=lambda entry: entry.name):
+            result.update((json.dumps([member.name, member.type.decode(), member.mode,
+                                       member.linkname, member.size]) + "\n").encode())
+            if member.isfile():
+                with archive.extractfile(member) as stream:
+                    result.update(hashlib.file_digest(stream, "sha256").digest())
+    return result.hexdigest()
 
 
 def prepare(out):
@@ -25,8 +41,9 @@ def prepare(out):
         lock["angle_sha256"], "angle.tar.gz")
     subprocess.run(["tar", "-xzf", archive, "--strip-components=1", "-C", source], check=True)
     for path, dependency in lock["dependencies"].items():
-        archive = fetch(downloads, dependency["url"], dependency["sha256"],
-                        "angle-" + path.replace("/", "_") + ".tar.gz")
+        archive = fetch(downloads, dependency["url"], dependency["tree_sha256"],
+                        "angle-" + path.replace("/", "_") + ".tar.gz",
+                        digest=gitiles_tree_sha256)
         dest = source / path
         dest.mkdir(parents=True, exist_ok=True)
         subprocess.run(["tar", "-xzf", archive, "-C", dest], check=True)
