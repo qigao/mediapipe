@@ -19,6 +19,7 @@ MEDIAPIPE_SHA = "5cb3de36eff44d36fbd535d3f2d485f3ec7f020b703ed128e9cac2b22046b39
 SALTS_BASE_VERSION = "0.1.3"
 SALTS_BASE_SHA = "d4521665c7226721b51f8a0febec6721bb1a53e81761799f5d3a864f5c7ab97b"
 OCV_VERSION = "0.1.0"
+OCV_MSVC_VERSION = "0.1.1"
 OCV_SHA = {
     "linux-x64": "01fe644d9869c2ed2f79e6078f8fbaece6725d2175bbf2806a62d689d34f8237",
     "linux-arm64": "16ced3247662a09c0f1fa10832d6dc43fb68639d37fd09b13512cb1fc41b077d",
@@ -57,6 +58,19 @@ def verify(path, checksum, digest):
         raise ValueError(f"SHA-256 mismatch for {path}: expected {checksum}, got {actual}")
 
 
+def fetch_opencv(downloads, profile):
+    filename = f"opencv-4.11.0-static-{profile}.tar.gz"
+    if profile.endswith("-msvc"):
+        release = f"https://github.com/qigao/ocv/releases/download/v{OCV_MSVC_VERSION}"
+        sums = subprocess.check_output(["curl", "-fsSL", "--retry", "3", f"{release}/SHA256SUMS"], text=True)
+        match = re.search(rf"^([0-9a-f]{{64}}) [ *]{re.escape(filename)}$", sums, re.MULTILINE)
+        if not match:
+            raise ValueError(f"OpenCV SDK v{OCV_MSVC_VERSION} is missing the checksum for {filename}")
+        return fetch(downloads, f"{release}/{filename}", match[1], f"ocv-v{OCV_MSVC_VERSION}-{filename}")
+    release = f"https://github.com/qigao/ocv/releases/download/v{OCV_VERSION}"
+    return fetch(downloads, f"{release}/{filename}", OCV_SHA[profile])
+
+
 def apply_source_patch(source, patch, ceiling):
     # Git for Windows may check the patch out with CRLF. Source tarballs use LF.
     subprocess.run(["git", "apply", "-"], cwd=source, check=True,
@@ -74,10 +88,7 @@ def prepare(work, downloads, target, profile, compiler=None, opencv_archive=None
         downloads, f"https://codeload.github.com/google-ai-edge/mediapipe/tar.gz/{MEDIAPIPE_COMMIT}",
         MEDIAPIPE_SHA,
     )
-    opencv = opencv_archive or fetch(
-        downloads, f"https://github.com/qigao/ocv/releases/download/v{OCV_VERSION}"
-        f"/opencv-4.11.0-static-{profile}.tar.gz", OCV_SHA[profile],
-    )
+    opencv = opencv_archive or fetch_opencv(downloads, profile)
     subprocess.run(["tar", "-xzf", upstream, "--strip-components=1", "-C", source], check=True)
     subprocess.run(["tar", "-xzf", opencv, "-C", ocv / "bazel"], check=True)
     (ocv / "WORKSPACE").write_text('workspace(name = "qigao_ocv")\n', encoding="utf-8")
@@ -268,7 +279,7 @@ def stage(output_base, output_path, manifest, prefix, source, ocv, target, profi
     metadata = {
         "mediapipe_version": MEDIAPIPE_VERSION,
         "mediapipe_commit": MEDIAPIPE_COMMIT,
-        "opencv_sdk_version": OCV_VERSION,
+        "opencv_sdk_version": OCV_MSVC_VERSION if profile.endswith("-msvc") else OCV_VERSION,
         "platform": profile,
         "gpu": target != "windows",
         "gpu_backend": {"macos": "metal", "windows": None}.get(target, "egl-opengles"),
@@ -392,8 +403,8 @@ def main():
     parser.add_argument("--shared", action="store_true", help="Also build the Tasks C shared library")
     args = parser.parse_args()
     msvc = args.windows_toolchain == "msvc"
-    if msvc and (args.target != "windows" or args.compiler or not args.opencv_archive):
-        parser.error("MSVC requires --target windows and --opencv-archive")
+    if msvc and (args.target != "windows" or args.compiler):
+        parser.error("MSVC requires --target windows")
     if not msvc and args.opencv_archive:
         parser.error("--opencv-archive requires --windows-toolchain msvc")
     host_arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower())
@@ -423,6 +434,7 @@ def main():
     profile = f"{args.target}-{arch}"
     if msvc:
         profile += "-msvc"
+    if args.opencv_archive:
         args.opencv_archive = args.opencv_archive.resolve()
     out = args.out.resolve()
     work = out / "source"

@@ -20,25 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  opencv:
-    name: OpenCVLite MSVC ${{ matrix.arch }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { arch: x64, runner: windows-2025 }
-          - { arch: arm64, runner: windows-11-arm }
-    uses: qigao/ocv/.github/workflows/build-opencv.yml@c958734a5b481a5906dc12a4fd5df68c2339da69
-    with:
-      profile: static
-      platform: windows-${{ matrix.arch }}-msvc
-      runner: ${{ matrix.runner }}
-      arch: ${{ matrix.arch }}
-      ocv_ref: c958734a5b481a5906dc12a4fd5df68c2339da69
-
   build:
     name: MediaPipe MSVC ${{ matrix.arch }}
-    needs: opencv
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     env:
@@ -56,10 +39,6 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v8.0.1
-        with:
-          name: opencv-static-windows-${{ matrix.arch }}-msvc
-          path: opencv-sdk
       - uses: actions/cache/restore@v6.1.0
         id: sdk-cache
         with:
@@ -96,8 +75,7 @@ jobs:
                 os.environ["BAZEL_SHA"])
           PY
           python -B sdk/build.py --target windows --arch "$ARCH" --windows-toolchain msvc --shared \
-            --bazel "$RUNNER_TEMP/$BAZEL_ASSET" --bazel-root "$BAZEL_ROOT" \
-            --opencv-archive "opencv-sdk/opencv-4.11.0-static-windows-$ARCH-msvc.tar.gz"
+            --bazel "$RUNNER_TEMP/$BAZEL_ASSET" --bazel-root "$BAZEL_ROOT"
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: mediapipe-native-windows-${{ matrix.arch }}-msvc
