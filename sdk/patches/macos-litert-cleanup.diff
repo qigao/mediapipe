@@ -1,0 +1,22 @@
+diff --git a/mediapipe/calculators/tensor/inference_runner_litert.cc b/mediapipe/calculators/tensor/inference_runner_litert.cc
+--- a/mediapipe/calculators/tensor/inference_runner_litert.cc
++++ b/mediapipe/calculators/tensor/inference_runner_litert.cc
+@@ -67,6 +67,7 @@
+ #include "mediapipe/util/tflite/tflite_signature_reader.h"
+ 
+ #if MEDIAPIPE_METAL_ENABLED
++#include "absl/cleanup/cleanup.h"  // from @com_google_absl
+ #include "mediapipe/framework/formats/tensor_mtl_buffer_view.h"
+ #include "tflite/delegates/gpu/metal/metal_device.h"  // from @litert
+ #endif                                                // MEDIAPIPE_METAL_ENABLED
+diff --git a/mediapipe/calculators/tensor/BUILD b/mediapipe/calculators/tensor/BUILD
+--- a/mediapipe/calculators/tensor/BUILD
++++ b/mediapipe/calculators/tensor/BUILD
+@@ -913,6 +913,7 @@
+         ],
+         "//mediapipe:apple": [
+             "//mediapipe/gpu:MPPMetalHelper",
++            "@com_google_absl//absl/cleanup",
+             "@litert//tflite/delegates/gpu/common:shape",
+             "@litert//tflite/delegates/gpu/metal:buffer_convert",
+             "@litert//tflite/delegates/gpu/metal:metal_device",

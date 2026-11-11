@@ -1,0 +1,63 @@
+diff --git a/WORKSPACE b/WORKSPACE
+--- a/WORKSPACE
++++ b/WORKSPACE
+@@ -880,6 +880,7 @@
+         "@//third_party:litert_custom_ops.diff",
+         "@//third_party:litert_internal_fbs_fix.diff",
+         "@//third_party:litert_mingw.diff",
++        "@//third_party:litert_dispatch_windows.diff",
+     ],
+     sha256 = "ec32db733e93501c693a8ab99e413c2d5d746dee7d452a8d6912046d7bc5c04e",
+     strip_prefix = "LiteRT-2.3.0",
+diff --git a/third_party/litert_dispatch_windows.diff b/third_party/litert_dispatch_windows.diff
+new file mode 100644
+--- /dev/null
++++ b/third_party/litert_dispatch_windows.diff
+@@ -0,0 +1,47 @@
++diff --git a/litert/cc/internal/litert_shared_library_windows.h b/litert/cc/internal/litert_shared_library_windows.h
++--- a/litert/cc/internal/litert_shared_library_windows.h
+++++ b/litert/cc/internal/litert_shared_library_windows.h
++@@ -127,14 +127,14 @@
++     handle = GetModuleHandle(NULL);
++   }
++ 
++-  void* address = GetProcAddress(static_cast<HMODULE>(handle), symbol);
+++  auto address = GetProcAddress(static_cast<HMODULE>(handle), symbol);
++   if (!address) {
++     DWORD error = GetLastError();
++     g_last_error = "Failed to find symbol '" + std::string(symbol) +
++                    "': " + GetWindowsErrorString(error);
++   }
++ 
++-  return address;
+++  return reinterpret_cast<void*>(address);
++ }
++ 
++ }  // namespace litert::internal::shared_library_windows
++diff --git a/litert/runtime/dispatch/litert_dispatch.cc b/litert/runtime/dispatch/litert_dispatch.cc
++--- a/litert/runtime/dispatch/litert_dispatch.cc
+++++ b/litert/runtime/dispatch/litert_dispatch.cc
++@@ -40,6 +40,9 @@
++ #include "litert/core/dynamic_loading.h"
++ #include "litert/core/util/perfetto_profiling.h"
++ #include "litert/core/version.h"
+++
+++// The Windows COM headers define interface as a macro.
+++#undef interface
++ #include "litert/vendors/c/litert_dispatch_api.h"
++ 
++ #define INVOKE_FUNC(function, ...)                                \
++diff --git a/litert/c/BUILD b/litert/c/BUILD
++--- a/litert/c/BUILD
+++++ b/litert/c/BUILD
++@@ -68,6 +68,10 @@
++     name = "litert_common",
++     srcs = ["litert_common.cc"],
++     hdrs = ["litert_common.h"],
+++    defines = select({
+++        "@platforms//os:windows": ["LITERT_STATIC"],
+++        "//conditions:default": [],
+++    }),
++     compatible_with = get_compatible_with_portable(),
++     deps = ["//litert/build_common:build_config"],
++ )

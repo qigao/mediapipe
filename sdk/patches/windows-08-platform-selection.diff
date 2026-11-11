@@ -1,0 +1,51 @@
+--- a/third_party/BUILD
++++ b/third_party/BUILD
+@@ -42,7 +42,7 @@
+     name = "glog",
+     visibility = ["//visibility:public"],
+     deps = select({
+-        "//mediapipe:windows": [
++        "@platforms//os:windows": [
+             "@com_github_glog_glog_windows//:glog",
+         ],
+         "//mediapipe:emscripten": [
+--- a/mediapipe/framework/deps/BUILD
++++ b/mediapipe/framework/deps/BUILD
+@@ -145,7 +145,7 @@
+         "@com_google_absl//absl/status:statusor",
+         "@com_google_absl//absl/strings",
+     ] + select({
+-        "//mediapipe:windows": [],
++        "@platforms//os:windows": [],
+         "//conditions:default": ["//mediapipe/framework/formats:unique_fd"],
+     }),
+ )
+@@ -388,7 +388,7 @@
+ cc_library(
+     name = "threadpool",
+     srcs = select({
+-        "//mediapipe:windows": ["threadpool_std_thread_impl.cc"],
++        "@platforms//os:windows": ["threadpool_std_thread_impl.cc"],
+         "//conditions:default": ["threadpool_pthread_impl.cc"],
+     }),
+     hdrs = ["threadpool.h"],
+--- a/mediapipe/util/BUILD
++++ b/mediapipe/util/BUILD
+@@ -293,7 +293,7 @@
+         "//mediapipe:ios": ["resource_util_apple.cc"],
+         "//mediapipe:macos": ["resource_util_default.cc"],
+         "//mediapipe:emscripten": ["resource_util_emscripten.cc"],
+-        "//mediapipe:windows": ["resource_util_windows.cc"],
++        "@platforms//os:windows": ["resource_util_windows.cc"],
+     }),
+     hdrs = [
+         "resource_util.h",
+@@ -336,7 +336,7 @@
+         "//mediapipe:macos": [
+             "@com_google_absl//absl/flags:flag",
+         ],
+-        "//mediapipe:windows": [
++        "@platforms//os:windows": [
+             "@bazel_tools//tools/cpp/runfiles",
+             "@com_google_absl//absl/flags:flag",
+         ],

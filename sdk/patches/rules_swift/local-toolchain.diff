@@ -1,0 +1,5 @@
+--- a/MODULE.bazel
++++ b/MODULE.bazel
+@@ -41 +41 @@
+-register_toolchains("@build_bazel_rules_swift_local_config//:all")
++register_toolchains("@build_bazel_rules_swift_local_config//:all", dev_dependency = True)

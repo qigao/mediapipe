@@ -1,0 +1,7 @@
+--- a/WORKSPACE
++++ b/WORKSPACE
+@@ -452,3 +452,3 @@
+     patches = ["@//third_party:com_google_audio_tools_fixes.diff"],
+-    repo_mapping = {"@com_github_glog_glog": "@com_github_glog_glog_no_gflags"},
++    repo_mapping = {"@com_github_glog_glog": "@com_github_glog_glog_windows"},
+     sha256 = "7d7227cc6bb1f8917a9c9013e8f3578ec681c49e20fe2fc38ba90965394de60c",

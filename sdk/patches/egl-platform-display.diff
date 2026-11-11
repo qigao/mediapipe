@@ -1,0 +1,16 @@
+--- a/mediapipe/gpu/gl_context_egl.cc
++++ b/mediapipe/gpu/gl_context_egl.cc
+@@ -185,8 +185,10 @@ static absl::StatusOr<EGLDisplay> GetInitializedAngleDisplayForDeviceUuid(
+     return cached_display;
+   }
+ 
+-  PFNEGLGETPLATFORMDISPLAYPROC eglGetPlatformDisplay =
+-      reinterpret_cast<PFNEGLGETPLATFORMDISPLAYPROC>(
+-          eglGetProcAddress("eglGetPlatformDisplay"));
++  // Android's EGL headers do not declare PFNEGLGETPLATFORMDISPLAYPROC.
++  using GetPlatformDisplayProc =
++      EGLDisplay(EGLAPIENTRY *)(EGLenum, void*, const EGLAttrib*);
++  auto eglGetPlatformDisplay = reinterpret_cast<GetPlatformDisplayProc>(
++      eglGetProcAddress("eglGetPlatformDisplay"));
+   if (eglGetPlatformDisplay == nullptr) {
+     return absl::UnavailableError("eglGetPlatformDisplay not supported");
