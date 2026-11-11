@@ -371,6 +371,8 @@ def build_flags(target, arch, msvc=False):
                 "--host_copt=/bigobj",
                 "--features=-static_link_msvcrt",
             ]
+            if arch == "arm64":
+                flags += ["--define=xnn_enable_arm_bf16=false", "--define=xnn_enable_arm_i8mm=false"]
         else:
             flags += [
                 f"--platforms=//qigao_sdk/toolchains:windows_{arch}",

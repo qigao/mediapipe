@@ -10,6 +10,15 @@
      strip_prefix = "abseil-cpp-20260526.0",
      urls = ["https://github.com/abseil/abseil-cpp/releases/download/20260526.0/abseil-cpp-20260526.0.tar.gz"],
  )
+@@ -63,6 +66,8 @@
+ bazel_dep(name = "protobuf", repo_name = "com_google_protobuf")
+ archive_override(
+     module_name = "protobuf",
++    patches = ["//third_party:protobuf_msvc_zlib.diff"],
++    patch_strip = 1,
+     strip_prefix = "protobuf-6.31.1",
+     urls = ["https://github.com/protocolbuffers/protobuf/archive/refs/tags/v6.31.1.zip"],
+ )
 --- a/WORKSPACE
 +++ b/WORKSPACE
 @@ -458,6 +458,8 @@
@@ -84,3 +93,41 @@
 + typedef float32x4_t v4sf;
 + #  define SIMD_SZ 4
 + #  define VZERO() vdupq_n_f32(0)
+--- /dev/null
++++ b/third_party/protobuf_msvc_zlib.diff
+@@ -0,0 +1,35 @@
++--- a/src/google/protobuf/io/BUILD.bazel
+++++ b/src/google/protobuf/io/BUILD.bazel
++@@ -149,21 +149,17 @@
++     name = "gzip_stream",
++     srcs = ["gzip_stream.cc"],
++     hdrs = ["gzip_stream.h"],
++-    copts = COPTS + select({
++-        "//build_defs:config_msvc": [],
++-        "//conditions:default": ["-DHAVE_ZLIB"],
++-    }),
++-    strip_include_prefix = "/src",
++-    deps = [
++-        ":io",
++-        "//src/google/protobuf:port",
++-        "//src/google/protobuf/stubs",
++-        "@abseil-cpp//absl/log:absl_check",
++-        "@abseil-cpp//absl/log:absl_log",
++-    ] + select({
++-        "//build_defs:config_msvc": [],
++-        "//conditions:default": ["@zlib"],
++-    }),
+++    copts = COPTS,
+++    local_defines = ["HAVE_ZLIB"],
+++    strip_include_prefix = "/src",
+++    deps = [
+++        ":io",
+++        "//src/google/protobuf:port",
+++        "//src/google/protobuf/stubs",
+++        "@abseil-cpp//absl/log:absl_check",
+++        "@abseil-cpp//absl/log:absl_log",
+++        "@zlib",
+++    ],
++ )
++ 
++ cc_library(
