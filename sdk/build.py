@@ -146,8 +146,11 @@ def cmake_link_flags(flags, target):
         if flag in {"-framework", "-weak_framework"}:
             flag += " " + next(flags)
         framework = re.fullmatch(r"(-(?:weak_)?framework) ([A-Za-z0-9_]+)", flag)
+        default_library = re.fullmatch(r"-DEFAULTLIB:([A-Za-z0-9_]+)\.lib", flag)
         if target == "macos" and framework:
             result.append(f"-Wl,{framework[1]},{framework[2]}")
+        elif target == "windows" and default_library:
+            result.append(f"-l{default_library[1]}")
         elif re.fullmatch(r"(-l[A-Za-z0-9_+:.-]+|-pthread|-Wl,[A-Za-z0-9_+=:,.\-]+)", flag):
             result.append(flag)
         elif target == "macos" and flag in {"-ObjC", "-fobjc-link-runtime"}:

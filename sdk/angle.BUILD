@@ -15,6 +15,7 @@ cc_library(
     name = "angle",
     hdrs = glob(["include/**"]),
     includes = ["include"],
+    defines = ["EGL_NO_PLATFORM_SPECIFIC_TYPES"],
     deps = [":egl", ":gles"],
     visibility = ["//visibility:public"],
 )
