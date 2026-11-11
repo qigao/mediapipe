@@ -363,7 +363,7 @@ def main():
                    f"--repository_cache={out / 'repository-cache'}",
                    f"--distdir={downloads}"]
     subprocess.run([
-        *bazel, "build", "-c", "opt", f"--jobs={args.jobs}",
+        *bazel, "build", "-c", "opt", f"--jobs={args.jobs}", "--output_filter=^$",
         *cache_flags, *flags, "//qigao_sdk:native",
     ], cwd=source, check=True)
     if args.target == "windows":
