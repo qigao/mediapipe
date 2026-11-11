@@ -1,0 +1,37 @@
+--- a/mediapipe/tasks/c/BUILD
++++ b/mediapipe/tasks/c/BUILD
+@@ -176,7 +176,6 @@
+            MEDIAPIPE_TASKS_C_CORE_DEPS +
+            MEDIAPIPE_TASKS_C_MODEL_MAKER_DEPS +
+            MEDIAPIPE_TASKS_C_AUDIO_DEPS +
+-           MEDIAPIPE_TASKS_C_RETRIEVAL_DEPS +
+            MEDIAPIPE_TASKS_C_TEXT_DEPS +
+            MEDIAPIPE_TASKS_C_VISION_DEPS,
+ )
+@@ -185,7 +183,7 @@
+ # buildifier: disable=constant-glob
+ genrule(
+     name = "mediapipe_linux",
+-    srcs = glob(["prebuilts/manylinux/libmediapipe.so"]) or [":mediapipe_source"],
++    srcs = [":mediapipe_source"],
+     outs = ["libmediapipe.so"],
+     cmd = "cp $< $@",
+ )
+@@ -193,7 +191,7 @@
+ # buildifier: disable=constant-glob
+ genrule(
+     name = "mediapipe_windows",
+-    srcs = glob(["prebuilts/windows_x86_64/libmediapipe.dll"]) or [":mediapipe_source"],
++    srcs = [":mediapipe_source"],
+     outs = ["libmediapipe.dll"],
+     cmd = "cp $< $@",
+ )
+@@ -201,7 +199,7 @@
+ # buildifier: disable=constant-glob
+ genrule(
+     name = "mediapipe_macos",
+-    srcs = glob(["prebuilts/darwin_arm64/libmediapipe.dylib"]) or [":mediapipe_source"],
++    srcs = [":mediapipe_source"],
+     outs = ["libmediapipe.dylib"],
+     cmd = "cp $< $@",
+ )

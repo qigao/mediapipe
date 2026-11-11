@@ -19,4 +19,6 @@ On Windows, select `BaseOptions::CPU` to use XNNPACK. The CMake package exposes 
 
 The [MSVC workflow](.github/workflows/build-msvc-sdk.yml) builds Windows x64 and ARM64 SDKs against matching OpenCVLite MSVC artifacts. It uploads `windows-x64-msvc` and `windows-arm64-msvc` archives for the MSVC C++ ABI with the DLL runtime (`/MD`). For a local MSVC build, pass `--windows-toolchain msvc --opencv-archive /path/to/opencv-sdk.tar.gz` and use Visual Studio Build Tools.
 
+The SDK workflows also build the upstream Tasks C shared library for each target. The shared library includes vision, audio, text, decision, and metadata APIs. CI uploads `libmediapipe.dll`, `libmediapipe.so`, or `libmediapipe.dylib` as a separate artifact and validates the image API on desktop and the ELF ABI on Android. Pass `--shared` to build the shared library locally.
+
 The SDK archives are staged in `build-sdk/`. Point CMake at the archive for the target OS and architecture and use `find_package(MediaPipe 1.2.2 EXACT CONFIG REQUIRED)`. An `sdk-v*` tag publishes the seven SDK archives and their SHA-256 checksums after the build jobs pass.

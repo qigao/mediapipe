@@ -91,11 +91,16 @@ jobs:
                 f"https://releases.bazel.build/7.7.0/release/{asset}",
                 os.environ["BAZEL_SHA"])
           PY
-          python -B sdk/build.py --target windows --arch "$ARCH" --windows-toolchain msvc \
+          python -B sdk/build.py --target windows --arch "$ARCH" --windows-toolchain msvc --shared \
             --bazel "$RUNNER_TEMP/$BAZEL_ASSET" \
             --opencv-archive "opencv-sdk/opencv-4.11.0-static-windows-$ARCH-msvc.tar.gz"
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: mediapipe-native-windows-${{ matrix.arch }}-msvc
           path: build-sdk/mediapipe-tasks-*-windows-${{ matrix.arch }}-msvc.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: mediapipe-tasks-c-windows-${{ matrix.arch }}-msvc
+          path: build-sdk/bin/libmediapipe.dll
           if-no-files-found: error

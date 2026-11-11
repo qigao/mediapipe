@@ -10,6 +10,7 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 
 SDK = Path(__file__).resolve().parent
 MEDIAPIPE_COMMIT = "2c2d4a7454d6358e0d6f0b54e254d231fe4cc78f"
@@ -106,7 +107,7 @@ def prepare(work, downloads, target, profile, compiler=None, opencv_archive=None
     if target == "windows":
         apply_source_patch(source, SDK / "patches/windows/audio-tools-glog.diff", work)
         if not msvc:
-            for patch in ("mingw-dependency-flags.diff", "mingw-pffft.diff"):
+            for patch in ("mingw-dependency-flags.diff", "mingw-pffft.diff", "mingw-litert-lm-link.diff"):
                 apply_source_patch(source, SDK / "patches/windows" / patch, work)
     package = source / "qigao_sdk"
     package.mkdir()
@@ -339,6 +340,7 @@ def build_flags(target, arch, msvc=False):
                 f"--platforms=//qigao_sdk/windows:windows_{arch}",
                 f"--extra_toolchains=@local_config_cc//:cc-toolchain-{cpu}",
                 "--compiler=msvc-cl",
+                "--define=protobuf_allow_msvc=true",
                 "--conlyopt=/std:c11",
                 "--conlyopt=/experimental:c11atomics",
                 "--copt=/DNOMINMAX",
@@ -379,6 +381,7 @@ def main():
     parser.add_argument("--compiler", type=Path, help="LLVM-MinGW installation for Windows")
     parser.add_argument("--windows-toolchain", choices=["llvm-mingw", "msvc"], default="llvm-mingw")
     parser.add_argument("--opencv-archive", type=Path, help="Matching OpenCV MSVC SDK archive")
+    parser.add_argument("--shared", action="store_true", help="Also build the Tasks C shared library")
     args = parser.parse_args()
     msvc = args.windows_toolchain == "msvc"
     if msvc and (args.target != "windows" or args.compiler or not args.opencv_archive):
@@ -422,12 +425,20 @@ def main():
     source, ocv = prepare(work, downloads, args.target, profile, args.compiler, args.opencv_archive)
     bazel = [args.bazel.resolve(), f"--output_user_root={out / 'bazel'}"]
     flags = build_flags(args.target, arch, msvc)
+    targets = ["//qigao_sdk:native"]
+    if args.shared:
+        targets.append("//mediapipe/tasks/c:libmediapipe")
+        if args.target == "windows" and not msvc:
+            flags.append("--per_file_copt=mediapipe/tasks/c/.*[.]cc$@-DMP_EXPORT=__declspec(dllexport)")
+        if args.target == "android":
+            flags += ["--linkopt=-Wl,-z,max-page-size=16384",
+                      "--linkopt=-Wl,-z,common-page-size=16384"]
     cache_flags = [f"--disk_cache={out / 'disk-cache'}",
                    f"--repository_cache={out / 'repository-cache'}",
                    f"--distdir={downloads}"]
     subprocess.run([
         *bazel, "build", "-c", "opt", f"--jobs={args.jobs}", "--output_filter=^$",
-        *cache_flags, *flags, "//qigao_sdk:native",
+        *cache_flags, *flags, *targets,
     ], cwd=source, check=True)
     if args.target == "windows":
         subprocess.run([
@@ -450,6 +461,16 @@ def main():
     archive = out / f"mediapipe-tasks-{MEDIAPIPE_VERSION}-{profile}.tar.gz"
     subprocess.run(["tar", "-czf", archive, "-C", prefix, "."], check=True)
     print(archive)
+    if args.shared:
+        suffix = {"windows": "dll", "macos": "dylib"}.get(args.target, "so")
+        library = out / "bin" / f"libmediapipe.{suffix}"
+        library.parent.mkdir(exist_ok=True)
+        shutil.copyfile(Path(info["bazel-bin"]) / "mediapipe/tasks/c" / library.name, library)
+        command = [sys.executable, "-B", SDK / "check_tasks_library.py", library]
+        if args.target == "android":
+            command += ["--android", args.arch, ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"]
+        subprocess.run(command, check=True)
+        print(library)
 
 
 if __name__ == "__main__":

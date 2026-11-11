@@ -120,7 +120,7 @@ jobs:
           if [[ "$TARGET" == android ]]; then
             export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.3.13750724"
           fi
-          args=(--target "$TARGET" --arch "$ARCH" --bazel "$bazel")
+          args=(--target "$TARGET" --arch "$ARCH" --bazel "$bazel" --shared)
           if [[ "$TARGET" == windows ]]; then
             args+=(--compiler "$MINGW_ROOT")
           fi
@@ -129,6 +129,11 @@ jobs:
         with:
           name: mediapipe-native-${{ matrix.target }}-${{ matrix.arch }}
           path: build-sdk/mediapipe-tasks-*-${{ matrix.target }}-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: mediapipe-tasks-c-${{ matrix.target }}-${{ matrix.arch }}
+          path: build-sdk/bin/libmediapipe.*
           if-no-files-found: error
 
   release:
