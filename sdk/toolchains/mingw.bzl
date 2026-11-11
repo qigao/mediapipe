@@ -1,7 +1,7 @@
 """GNU-driver LLVM-MinGW toolchain; target libraries use the OCV SDK's ABI."""
 
 load("@bazel_tools//tools/build_defs/cc:action_names.bzl", "ACTION_NAMES")
-load("@bazel_tools//tools/cpp:cc_toolchain_config_lib.bzl", "feature", "flag_group", "flag_set", "tool_path")
+load("@bazel_tools//tools/cpp:cc_toolchain_config_lib.bzl", "artifact_name_pattern", "feature", "flag_group", "flag_set", "tool_path")
 load(":compiler.bzl", "COMPILER_ROOT")
 
 def _config_impl(ctx):
@@ -23,12 +23,16 @@ def _config_impl(ctx):
         toolchain_identifier = "llvm-mingw-" + ctx.attr.arch,
         host_system_name = "local",
         target_system_name = triple,
-        target_cpu = {"x64": "x64_windows", "arm64": "aarch64"}[ctx.attr.arch],
+        target_cpu = {"x64": "x64_windows", "arm64": "arm64_windows"}[ctx.attr.arch],
         target_libc = "ucrt",
         compiler = "mingw-gcc",
         abi_version = "local",
         abi_libc_version = "local",
         cxx_builtin_include_directories = [COMPILER_ROOT],
+        artifact_name_patterns = [
+            artifact_name_pattern(category_name = "executable", prefix = "", extension = ".exe"),
+            artifact_name_pattern(category_name = "dynamic_library", prefix = "lib", extension = ".dll"),
+        ],
         tool_paths = [
             tool_path(name = "gcc", path = COMPILER_ROOT + "/bin/" + triple + "-clang++.exe"),
             tool_path(name = "ar", path = COMPILER_ROOT + "/bin/llvm-ar.exe"),
@@ -41,7 +45,7 @@ def _config_impl(ctx):
             tool_path(name = "gcov", path = COMPILER_ROOT + "/bin/llvm-cov.exe"),
         ],
         features = [
-            feature(name = "supports_pic", enabled = True),
+            feature(name = "targets_windows", enabled = True),
             feature(name = "supports_dynamic_linker", enabled = True),
             feature(name = "c_language", enabled = True, flag_sets = [flag_set(
                 actions = [ACTION_NAMES.c_compile],

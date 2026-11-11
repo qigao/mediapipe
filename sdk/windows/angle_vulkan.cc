@@ -1,5 +1,7 @@
 #include "qigao_sdk/windows/angle_vulkan.h"
 
+#include <algorithm>
+
 #include <EGL/eglext.h>
 #include <vulkan/vulkan_core.h>
 
@@ -8,7 +10,8 @@
 
 namespace mediapipe::sdk {
 
-absl::Status RequireVulkanHardware(EGLDisplay display) {
+absl::Status RequireVulkanHardware(EGLDisplay display,
+                                  std::span<const uint8_t> expected_uuid) {
   const auto query_display = reinterpret_cast<PFNEGLQUERYDISPLAYATTRIBEXTPROC>(
       eglGetProcAddress("eglQueryDisplayAttribEXT"));
   const auto query_device = reinterpret_cast<PFNEGLQUERYDEVICEATTRIBEXTPROC>(
@@ -27,14 +30,24 @@ absl::Status RequireVulkanHardware(EGLDisplay display) {
     return absl::UnavailableError("ANGLE did not expose its Vulkan device");
   }
   const auto get_instance_proc = reinterpret_cast<PFN_vkGetInstanceProcAddr>(get_proc);
-  const auto get_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
+  const auto get_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
       get_instance_proc(reinterpret_cast<VkInstance>(instance),
-                        "vkGetPhysicalDeviceProperties"));
+                        "vkGetPhysicalDeviceProperties2"));
   if (!get_properties) {
     return absl::UnavailableError("Vulkan device properties are unavailable");
   }
-  VkPhysicalDeviceProperties properties{};
-  get_properties(reinterpret_cast<VkPhysicalDevice>(physical_device), &properties);
+  VkPhysicalDeviceIDProperties id{};
+  id.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+  VkPhysicalDeviceProperties2 details{};
+  details.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+  details.pNext = &id;
+  get_properties(reinterpret_cast<VkPhysicalDevice>(physical_device), &details);
+  const auto& properties = details.properties;
+  // ANGLE can choose a different device if a requested UUID is unavailable.
+  if (!expected_uuid.empty() &&
+      !std::ranges::equal(expected_uuid, id.deviceUUID)) {
+    return absl::UnavailableError("The requested Vulkan GPU UUID is unavailable");
+  }
   switch (properties.deviceType) {
     case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
     case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:

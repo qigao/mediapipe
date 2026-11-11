@@ -28,12 +28,13 @@
  }
  
  // Formats a GPU device UUID for logs and error messages.
-@@ -218,6 +225,9 @@
+@@ -218,6 +225,10 @@
                      "UUID "
                   << DeviceUuidToHexString(device_uuid) << ". Major: " << major
                   << " Minor: " << minor;
 +#ifdef _WIN32
-+  ABSL_RETURN_IF_ERROR(sdk::RequireVulkanHardware(display));
++  ABSL_RETURN_IF_ERROR(sdk::RequireVulkanHardware(
++      display, {device_uuid.data(), device_uuid.size()}));
 +#endif
    cached_display = display;
    return display;

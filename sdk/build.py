@@ -285,6 +285,7 @@ def build_flags(target, arch):
         flags += [
             "--enable_platform_specific_config=false",
             f"--platforms=//qigao_sdk/toolchains:windows_{arch}",
+            "--cpu=" + {"x64": "x64_windows", "arm64": "arm64_windows"}[arch],
             "--extra_toolchains=//qigao_sdk/toolchains:toolchain_x64,//qigao_sdk/toolchains:toolchain_arm64",
             "--compiler=mingw-gcc",
             "--copt=-DNOMINMAX",
