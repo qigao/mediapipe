@@ -1,0 +1,202 @@
+--- a/mediapipe/gpu/gl_context_internal.h
++++ b/mediapipe/gpu/gl_context_internal.h
+@@ -14,6 +14,10 @@
+ 
+ #ifndef MEDIAPIPE_GPU_GL_CONTEXT_INTERNAL_H_
+ #define MEDIAPIPE_GPU_GL_CONTEXT_INTERNAL_H_
++
++#ifdef _WIN32
++#include <threads/threads.h>
++#endif
+ 
+ #include "absl/synchronization/mutex.h"  // from @com_google_absl
+ #ifdef __APPLE__
+@@ -43,7 +47,11 @@
+   void SelfDestruct();
+ 
+  private:
++#ifdef _WIN32
++  static int ThreadBody(void* instance);
++#else
+   static void* ThreadBody(void* instance);
++#endif
+   void ThreadBody();
+ 
+   using Job = std::function<void(void)>;
+@@ -53,7 +61,11 @@
+   absl::Mutex mutex_;
+   // Used to wait for a job's completion.
+   absl::CondVar gl_job_done_cv_ ABSL_GUARDED_BY(mutex_);
++#ifdef _WIN32
++  thrd_t gl_thread_id_;
++#else
+   pthread_t gl_thread_id_;
++#endif
+ 
+   std::deque<Job> jobs_ ABSL_GUARDED_BY(mutex_);
+   absl::CondVar has_jobs_cv_ ABSL_GUARDED_BY(mutex_);
+--- a/mediapipe/gpu/gl_context.cc
++++ b/mediapipe/gpu/gl_context.cc
+@@ -95,17 +95,29 @@
+ }
+ 
+ GlContext::DedicatedThread::DedicatedThread() {
++#ifdef _WIN32
++  ABSL_CHECK_EQ(thrd_create(&gl_thread_id_, ThreadBody, this), thrd_success);
++#else
+   ABSL_CHECK_EQ(pthread_create(&gl_thread_id_, nullptr, ThreadBody, this), 0);
++#endif
+ }
+ 
+ GlContext::DedicatedThread::~DedicatedThread() {
+   if (IsCurrentThread()) {
+     ABSL_CHECK(self_destruct_);
++#ifdef _WIN32
++    ABSL_CHECK_EQ(thrd_detach(gl_thread_id_), thrd_success);
++#else
+     ABSL_CHECK_EQ(pthread_detach(gl_thread_id_), 0);
++#endif
+   } else {
+     // Give an invalid job to signal termination.
+     PutJob({});
++#ifdef _WIN32
++    ABSL_CHECK_EQ(thrd_join(gl_thread_id_, nullptr), thrd_success);
++#else
+     ABSL_CHECK_EQ(pthread_join(gl_thread_id_, nullptr), 0);
++#endif
+   }
+ }
+ 
+@@ -131,10 +143,18 @@
+   has_jobs_cv_.SignalAll();
+ }
+ 
++#ifdef _WIN32
++int GlContext::DedicatedThread::ThreadBody(void* instance) {
++#else
+ void* GlContext::DedicatedThread::ThreadBody(void* instance) {
++#endif
+   DedicatedThread* thread = static_cast<DedicatedThread*>(instance);
+   thread->ThreadBody();
++#ifdef _WIN32
++  return 0;
++#else
+   return nullptr;
++#endif
+ }
+ 
+ #ifdef __APPLE__
+@@ -210,7 +230,11 @@
+ }
+ 
+ bool GlContext::DedicatedThread::IsCurrentThread() {
++#ifdef _WIN32
++  return thrd_equal(gl_thread_id_, thrd_current());
++#else
+   return pthread_equal(gl_thread_id_, pthread_self());
++#endif
+ }
+ 
+ bool GlContext::ParseGlVersion(absl::string_view version_string, GLint* major,
+--- a/mediapipe/gpu/gl_context_egl.cc
++++ b/mediapipe/gpu/gl_context_egl.cc
+@@ -62,8 +62,13 @@
+ 
+ namespace {
+ 
++#ifdef _WIN32
++static tss_t egl_release_thread_key;
++static once_flag egl_release_key_once = ONCE_FLAG_INIT;
++#else
+ static pthread_key_t egl_release_thread_key;
+ static pthread_once_t egl_release_key_once = PTHREAD_ONCE_INIT;
++#endif
+ 
+ static void EglThreadExitCallback(void* key_value) {
+   EGLDisplay current_display = eglGetCurrentDisplay();
+@@ -84,19 +89,30 @@
+ // If a key has a destructor callback, and a thread has a non-NULL value for
+ // that key, then the destructor is called when the thread exits.
+ static void MakeEglReleaseThreadKey() {
++#ifdef _WIN32
++  ABSL_CHECK_EQ(tss_create(&egl_release_thread_key, EglThreadExitCallback),
++                thrd_success);
++#else
+   int err = pthread_key_create(&egl_release_thread_key, EglThreadExitCallback);
+   if (err) {
+     ABSL_LOG(ERROR) << "cannot create pthread key: " << err;
+   }
++#endif
+ }
+ 
+ // This function can be called any number of times. For any thread on which it
+ // was called at least once, the EglThreadExitCallback will be called (once)
+ // when the thread exits.
+ static void EnsureEglThreadRelease() {
++#ifdef _WIN32
++  call_once(&egl_release_key_once, MakeEglReleaseThreadKey);
++  ABSL_CHECK_EQ(tss_set(egl_release_thread_key,
++                        reinterpret_cast<void*>(0xDEADBEEF)), thrd_success);
++#else
+   pthread_once(&egl_release_key_once, MakeEglReleaseThreadKey);
+   pthread_setspecific(egl_release_thread_key,
+                       reinterpret_cast<void*>(0xDEADBEEF));
++#endif
+ }
+ 
+ static absl::StatusOr<EGLDisplay> GetInitializedDefaultEglDisplay() {
+--- a/mediapipe/gpu/BUILD
++++ b/mediapipe/gpu/BUILD
+@@ -36,13 +36,10 @@
+ 
+ # Disabling GPU support is sometimes useful on desktop Linux because SwiftShader can
+ # interfere with desktop GL. b/73494271
+-# Also disable GPU on Windows since it's not supported (use pthread).
+ selects.config_setting_group(
+     name = "disable_gpu",
+     match_any = [
+         ":disable_gpu_flag",
+-        # The GPU library here use pthread which is not available on Windows.
+-        "@platforms//os:windows",
+     ],
+     visibility = ["//visibility:public"],
+ )
+@@ -121,6 +118,7 @@
+         "-lEGL",
+     ],
+     "//mediapipe:android": [],
++    "//mediapipe:windows": [],
+     ":platform_apple_with_gpu": [],
+     ":disable_gpu": [],
+ })
+@@ -138,6 +136,7 @@
+     textual_hdrs = ["gl_base.h"],
+     visibility = ["//visibility:public"],
+     deps = [":gl_base_hdr"] + select({
++        "//mediapipe:windows": ["@qigao_angle//:angle"],
+         "//mediapipe:android": [],
+         "//mediapipe:apple": [],
+         "//mediapipe:emscripten": [],
+@@ -230,16 +229,17 @@
+             "-framework AppKit",
+         ],
+     }),
+-    target_compatible_with = select({
+-        # This cc_library uses pthread and is not compatible with Windows. Marking it as
+-        # incompatible instead of the confusing message "pthread.h" file not found.
+-        "@platforms//os:windows": ["//third_party/bazel_platforms:incompatible"],
++    local_defines = select({
++        "@platforms//os:windows": ["SALTS_API="],
+         "//conditions:default": [],
+     }),
+     visibility = [
+         "//visibility:public",
+     ],
+-    deps = [
++    deps = select({
++        "@platforms//os:windows": ["@qigao_salts_threads//:threads"],
++        "//conditions:default": [],
++    }) + [
+         ":attachments",
+         ":gl_base",
+         ":gl_thread_collector",

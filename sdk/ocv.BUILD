@@ -19,6 +19,7 @@ cc_library(
         "//conditions:default": ["include/opencv4"],
     }),
     linkopts = select({
+        "@platforms//os:windows": ["-luser32", "-ladvapi32", "-lole32"],
         "@platforms//os:android": ["-landroid", "-ldl", "-llog", "-lm"],
         "@platforms//os:macos": ["-framework Accelerate", "-framework Foundation"],
         "@platforms//os:linux": ["-ldl", "-lm", "-lpthread", "-lrt"],

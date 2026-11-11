@@ -12,8 +12,11 @@ import shutil
 import subprocess
 
 SDK = Path(__file__).resolve().parent
-MEDIAPIPE_COMMIT = "80ae8afbd03465b0d6d9f9e874f8cacf093d23e9"
-MEDIAPIPE_VERSION = "0.10.26"
+MEDIAPIPE_COMMIT = "2c2d4a7454d6358e0d6f0b54e254d231fe4cc78f"
+MEDIAPIPE_VERSION = "1.2.2"
+MEDIAPIPE_SHA = "5cb3de36eff44d36fbd535d3f2d485f3ec7f020b703ed128e9cac2b22046b39d"
+SALTS_BASE_VERSION = "0.1.3"
+SALTS_BASE_SHA = "d4521665c7226721b51f8a0febec6721bb1a53e81761799f5d3a864f5c7ab97b"
 OCV_VERSION = "0.1.0"
 OCV_SHA = {
     "linux-x64": "01fe644d9869c2ed2f79e6078f8fbaece6725d2175bbf2806a62d689d34f8237",
@@ -22,6 +25,8 @@ OCV_SHA = {
     "android-arm64": "58932c6c12100990e31be556c9351bc0cf3cf6b6b9e3100a39d6307c2589db8f",
     "macos-x64": "c20c1b995b17cf0353d8c7778f1722df08ae41864b823338094f6809a581fc1b",
     "macos-arm64": "f3a8537441c4b9863ab248b1beb4e897da407d29427d1065484eb62ffa165ce7",
+    "windows-x64": "a24e0c4975563bcbad40fad453ed7c5a67ff1ee61117d2a89a27a4fef093b2d0",
+    "windows-arm64": "1e04b3030201f9734c333b2f5ff48d2d29212da50b00f7c30123ebc86a994730",
 }
 ANDROID_NDK = "27.3.13750724"
 ANDROID_API = 26
@@ -46,21 +51,19 @@ def verify(path, checksum):
             raise ValueError(f"SHA-256 mismatch for {path}")
 
 
-def prepare(work, downloads, target, profile):
+def prepare(work, downloads, target, profile, angle=None, compiler=None):
     source = work / "mediapipe"
     ocv = work / "ocv"
     source.mkdir(parents=True)
     (ocv / "bazel").mkdir(parents=True)
     upstream = fetch(
         downloads, f"https://codeload.github.com/google-ai-edge/mediapipe/tar.gz/{MEDIAPIPE_COMMIT}",
-        "09e6bae5999c89de7bf457ee7b36aaa1fd469bcd9d37ed994c6f90212516266e",
+        MEDIAPIPE_SHA,
     )
     opencv = fetch(
         downloads, f"https://github.com/qigao/ocv/releases/download/v{OCV_VERSION}"
         f"/opencv-4.11.0-static-{profile}.tar.gz", OCV_SHA[profile],
     )
-    fetch(downloads, "https://zlib.net/fossils/zlib-1.2.13.tar.gz",
-          "b3a24de97a8fdbc835b9833169501030b8977031bcb54b3b3ac13740f846ab30")
     subprocess.run(["tar", "-xzf", upstream, "--strip-components=1", "-C", source], check=True)
     subprocess.run(["tar", "-xzf", opencv, "-C", ocv / "bazel"], check=True)
     (ocv / "WORKSPACE").write_text('workspace(name = "qigao_ocv")\n', encoding="utf-8")
@@ -73,6 +76,19 @@ def prepare(work, downloads, target, profile):
                 f'\nandroid_ndk_repository(name = "androidndk", api_level = {ANDROID_API})\n'
                 'bind(name = "android/crosstool", actual = "@androidndk//:toolchain")\n'
             )
+        if target == "windows":
+            salts = work / "salts-threads"
+            salts.mkdir()
+            archive = fetch(downloads,
+                f"https://codeload.github.com/qigao/salts-base/tar.gz/refs/tags/v{SALTS_BASE_VERSION}",
+                SALTS_BASE_SHA, f"salts-base-{SALTS_BASE_VERSION}.tar.gz")
+            subprocess.run(["tar", "-xzf", archive, "--strip-components=1", "-C", salts], check=True)
+            (salts / "WORKSPACE").write_text('workspace(name = "qigao_salts_threads")\n')
+            shutil.copyfile(SDK / "salts-threads.BUILD", salts / "BUILD.bazel")
+            (angle / "WORKSPACE").write_text('workspace(name = "qigao_angle")\n')
+            shutil.copyfile(SDK / "angle.BUILD", angle / "BUILD.bazel")
+            for name, path in (("qigao_salts_threads", salts), ("qigao_angle", angle)):
+                stream.write(f'\nlocal_repository(name = "{name}", path = {json.dumps(path.as_posix())})\n')
     for patch in sorted((SDK / "patches").glob("*.diff")):
         subprocess.run(["git", "apply", patch], cwd=source, check=True,
                        env=os.environ | {"GIT_CEILING_DIRECTORIES": str(work)})
@@ -80,6 +96,11 @@ def prepare(work, downloads, target, profile):
     package.mkdir()
     for name in ("BUILD.bazel", "export.bzl"):
         shutil.copyfile(SDK / name, package / name)
+    if target == "windows":
+        shutil.copytree(SDK / "windows", package / "windows")
+        shutil.copytree(SDK / "toolchains", package / "toolchains")
+        config = package / "toolchains/compiler.bzl"
+        config.write_text(f'COMPILER_ROOT = {json.dumps(compiler.as_posix())}\n')
     return source, ocv
 
 
@@ -120,7 +141,7 @@ def write_cmake(manifest, prefix, target, profile):
         "set(MediaPipe_GPU_ENABLED TRUE)",
         f'set(MediaPipe_SDK_PLATFORM "{profile}")',
         "add_library(MediaPipe::Tasks INTERFACE IMPORTED)",
-        "target_compile_features(MediaPipe::Tasks INTERFACE cxx_std_17)",
+        "target_compile_features(MediaPipe::Tasks INTERFACE cxx_std_20)",
     ]
     if target == "android":
         lines.append(f'set(MediaPipe_ANDROID_API "{ANDROID_API}")')
@@ -150,6 +171,8 @@ def write_cmake(manifest, prefix, target, profile):
     link.extend(cmake_link_flags(manifest["link_flags"], target))
     if target == "macos":
         link.append("-lobjc")
+    for path in manifest["interface_libraries"]:
+        link.append(f'"${{_mp_root}}/lib/archives/{path}"')
     lines.append("target_link_libraries(MediaPipe::Tasks INTERFACE\n  " +
                  "\n  ".join(link) + "\n)")
     lines.append("unset(_mp_root)")
@@ -179,6 +202,11 @@ def stage(execroot, manifest, prefix, source, ocv, target, profile):
                 raise ValueError(f"Nonrelocatable include directory: {path}")
             (include / path).mkdir(parents=True, exist_ok=True)
     copy_paths(execroot, (path for path, _ in manifest["libraries"]), prefix / "lib/archives")
+    copy_paths(execroot, manifest["interface_libraries"], prefix / "lib/archives")
+    for path in manifest["dynamic_libraries"]:
+        dest = prefix / "bin" / Path(path).name
+        dest.parent.mkdir(exist_ok=True)
+        shutil.copyfile(execroot / path, dest)
     write_cmake(manifest, prefix, target, profile)
     metadata = {
         "mediapipe_version": MEDIAPIPE_VERSION,
@@ -186,12 +214,14 @@ def stage(execroot, manifest, prefix, source, ocv, target, profile):
         "opencv_sdk_version": OCV_VERSION,
         "platform": profile,
         "gpu": True,
-        "gpu_backend": "metal" if target == "macos" else "egl-opengles",
+        "gpu_backend": {"macos": "metal", "windows": "angle-vulkan"}.get(target, "egl-opengles"),
     }
     if target == "android":
         metadata.update(android_api=ANDROID_API, android_ndk=ANDROID_NDK)
     if target == "macos":
         metadata["macos_minimum"] = MACOS_MINIMUM
+    if target == "windows":
+        metadata["salts_threads_version"] = SALTS_BASE_VERSION
     (prefix / "manifest.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     notices = prefix / "licenses"
     notices.mkdir()
@@ -215,10 +245,11 @@ def build_flags(target, arch):
     flags = [
         "--repo_env=HERMETIC_PYTHON_VERSION=3.12",
         "--action_env=PYTHONHASHSEED=0",
-        "--copt=-fPIC",
-        "--cxxopt=-std=c++17",
-        "--host_cxxopt=-std=c++17",
+        "--cxxopt=-std=c++20",
+        "--host_cxxopt=-std=c++20",
     ]
+    if target != "windows":
+        flags.append("--copt=-fPIC")
     if target in {"linux", "android"} and arch == "x64":
         flags.append("--define=xnn_enable_avx512fp16=false")
     if target == "linux":
@@ -226,16 +257,24 @@ def build_flags(target, arch):
         flags.extend(f"--copt=-D{define}" for define in LINUX_DEFINES)
         flags.append("--per_file_copt=gl_context_egl[.]cc$@-DMEDIAPIPE_OMIT_EGL_WINDOW_BIT")
     elif target == "android":
-        cpu, platform_name = {
-            "arm64": ("arm64-v8a", "android_arm64_platform"),
-            "x64": ("x86_64", "android_x86_64_platform"),
-        }[arch]
+        cpu = {"arm64": "arm64-v8a", "x64": "x86_64"}[arch]
         flags += [
             "--config=android",
             f"--cpu={cpu}",
             "--incompatible_enable_cc_toolchain_resolution",
-            f"--platforms=//mediapipe:{platform_name}",
+            f"--platforms=@//third_party/android:{cpu}",
             "--extra_toolchains=@androidndk//:all",
+        ]
+    elif target == "windows":
+        flags += [
+            "--enable_platform_specific_config=false",
+            f"--platforms=//qigao_sdk/toolchains:windows_{arch}",
+            "--extra_toolchains=//qigao_sdk/toolchains:all",
+            "--compiler=mingw-gcc",
+            "--copt=-DNOMINMAX",
+            "--host_copt=-DNOMINMAX",
+            "--define=xnn_enable_avx512fp16=false",
+            "--define=xnn_enable_avx512amx=false",
         ]
     else:
         cpu = {"arm64": "darwin_arm64", "x64": "darwin_x86_64"}[arch]
@@ -247,13 +286,15 @@ def build_flags(target, arch):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", choices=["linux", "android", "macos"], default="linux")
+    parser.add_argument("--target", choices=["linux", "android", "macos", "windows"], default="linux")
     parser.add_argument("--arch", choices=["x64", "arm64"])
     parser.add_argument("--bazel", required=True, type=Path)
     parser.add_argument("--out", default=Path("build-sdk"), type=Path)
     parser.add_argument("--jobs", default=4, type=int)
+    parser.add_argument("--angle", type=Path, help="ANGLE/Vulkan installation for the Windows target")
+    parser.add_argument("--compiler", type=Path, help="LLVM-MinGW installation for Windows")
     args = parser.parse_args()
-    host_arch = {"x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine())
+    host_arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower())
     arch = args.arch or host_arch
     host = platform.system()
     if args.target == "android":
@@ -266,6 +307,11 @@ def main():
         if f"Pkg.Revision = {ANDROID_NDK}" not in properties.splitlines():
             parser.error(f"Android requires NDK {ANDROID_NDK}.")
         os.environ["ANDROID_NDK_HOME"] = str(ndk)
+    elif args.target == "windows":
+        if host != "Windows" or arch != host_arch or not args.angle or not args.compiler:
+            parser.error("Windows requires a native host, --angle, and --compiler.")
+        args.angle = args.angle.resolve()
+        args.compiler = args.compiler.resolve()
     elif host != {"linux": "Linux", "macos": "Darwin"}[args.target] or arch != host_arch:
         parser.error("Linux and macOS SDKs must be built on the target OS and architecture.")
     if arch not in {"x64", "arm64"}:
@@ -277,22 +323,33 @@ def main():
     downloads.mkdir(parents=True, exist_ok=True)
     if work.exists():
         shutil.rmtree(work)
-    source, ocv = prepare(work, downloads, args.target, profile)
+    source, ocv = prepare(work, downloads, args.target, profile, args.angle, args.compiler)
     bazel = [args.bazel.resolve(), f"--output_user_root={out / 'bazel'}"]
     flags = build_flags(args.target, arch)
+    cache_flags = [f"--disk_cache={out / 'disk-cache'}",
+                   f"--repository_cache={out / 'repository-cache'}",
+                   f"--distdir={downloads}"]
     subprocess.run([
         *bazel, "build", "-c", "opt", f"--jobs={args.jobs}",
-        f"--disk_cache={out / 'disk-cache'}", f"--repository_cache={out / 'repository-cache'}",
-        f"--distdir={downloads}", *flags, "//qigao_sdk:native",
+        *cache_flags, *flags, "//qigao_sdk:native",
     ], cwd=source, check=True)
+    if args.target == "windows":
+        subprocess.run([
+            *bazel, "test", "-c", "opt", f"--jobs={args.jobs}", *cache_flags, *flags,
+            "--test_output=errors", "//qigao_sdk/windows:threads_lifecycle_test",
+        ], cwd=source, check=True)
     execroot = Path(subprocess.check_output(
-        [*bazel, "info", *flags, "execution_root"], cwd=source, text=True,
+        [*bazel, "info", *cache_flags, *flags, "execution_root"], cwd=source, text=True,
     ).strip())
     manifest = json.loads((source / "bazel-bin/qigao_sdk/native.json").read_text(encoding="utf-8"))
     prefix = out / "package"
     if prefix.exists():
         shutil.rmtree(prefix)
     stage(execroot, manifest, prefix, source, ocv, args.target, profile)
+    if args.target == "windows":
+        shutil.copytree(args.angle / "licenses", prefix / "licenses/ANGLE")
+        shutil.copyfile(work / "salts-threads/LICENSE", prefix / "licenses/SaltsBase")
+        shutil.copyfile(args.angle / "manifest.json", prefix / "angle-manifest.json")
     archive = out / f"mediapipe-tasks-{MEDIAPIPE_VERSION}-{profile}.tar.gz"
     subprocess.run(["tar", "-czf", archive, "-C", prefix, "."], check=True)
     print(archive)

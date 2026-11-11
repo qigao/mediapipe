@@ -6,6 +6,8 @@ def _export_cc_sdk_impl(ctx):
     inputs = info.linking_context.linker_inputs.to_list()
     libraries = {}
     flags = []
+    interfaces = []
+    dynamic = []
     for linker_input in inputs:
         for extra in linker_input.additional_inputs:
             # Bazel uses this file to assemble the Objective-C archive with libtool.
@@ -15,8 +17,12 @@ def _export_cc_sdk_impl(ctx):
         for lib in linker_input.libraries:
             archive = lib.pic_static_library or lib.static_library
             if not archive:
-                fail("The SDK requires a static archive for {}".format(linker_input.owner))
-            libraries[archive] = libraries.get(archive, False) or lib.alwayslink
+                if not lib.interface_library or not lib.dynamic_library:
+                    fail("Expected a static archive or a DLL import library for {}".format(linker_input.owner))
+                interfaces.append(lib.interface_library)
+                dynamic.append(lib.dynamic_library)
+            else:
+                libraries[archive] = libraries.get(archive, False) or lib.alwayslink
 
     manifest = ctx.actions.declare_file(ctx.label.name + ".json")
     ctx.actions.write(manifest, json.encode({
@@ -27,8 +33,10 @@ def _export_cc_sdk_impl(ctx):
         "system_includes": compilation.system_includes.to_list(),
         "libraries": [[archive.path, alwayslink] for archive, alwayslink in libraries.items()],
         "link_flags": flags,
+        "interface_libraries": [file.path for file in interfaces],
+        "dynamic_libraries": [file.path for file in dynamic],
     }))
-    return [DefaultInfo(files = depset([manifest] + libraries.keys(), transitive = [compilation.headers]))]
+    return [DefaultInfo(files = depset([manifest] + libraries.keys() + interfaces + dynamic, transitive = [compilation.headers]))]
 
 export_cc_sdk = rule(
     implementation = _export_cc_sdk_impl,
