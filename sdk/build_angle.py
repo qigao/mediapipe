@@ -112,7 +112,7 @@ def main():
         "angle_enable_vulkan_api_dump_layer": False,
         "angle_has_astc_encoder": False, "angle_has_frame_capture": False,
         "angle_has_histograms": False, "angle_has_rapidjson": False,
-        "angle_enable_overlay": False, "angle_build_vulkan_system_info": False,
+        "angle_enable_overlay": False,
     }
     (build / "args.gn").write_text("\n".join(
         name + " = " + json.dumps(value) for name, value in gn_args.items()) + "\n")
