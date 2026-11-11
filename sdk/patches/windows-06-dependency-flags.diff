@@ -115,7 +115,7 @@ diff --git a/third_party/cpuinfo_nominmax.diff b/third_party/cpuinfo_nominmax.di
 new file mode 100644
 --- /dev/null
 +++ b/third_party/cpuinfo_nominmax.diff
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,68 @@
 +diff --git a/src/x86/windows/init.c b/src/x86/windows/init.c
 +--- a/src/x86/windows/init.c
 ++++ b/src/x86/windows/init.c
@@ -162,6 +162,7 @@ new file mode 100644
 +         "src/arm/api.h",
 +         "src/arm/midr.h",
 +         "src/riscv/api.h",
++diff --git a/src/arm/cache.c b/src/arm/cache.c
 +--- a/src/arm/cache.c
 ++++ b/src/arm/cache.c
 +@@ -10,13 +10,13 @@
