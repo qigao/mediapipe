@@ -41,6 +41,11 @@ jobs:
     needs: opencv
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    env:
+      SDK_CACHE_PATHS: |
+        build-sdk/downloads
+        build-sdk/repository-cache
+        build-sdk/disk-cache
     strategy:
       fail-fast: false
       matrix:
@@ -55,12 +60,10 @@ jobs:
         with:
           name: opencv-static-windows-${{ matrix.arch }}-msvc
           path: opencv-sdk
-      - uses: actions/cache@v6.1.0
+      - uses: actions/cache/restore@v6.1.0
+        id: sdk-cache
         with:
-          path: |
-            build-sdk/downloads
-            build-sdk/repository-cache
-            build-sdk/disk-cache
+          path: ${{ env.SDK_CACHE_PATHS }}
           key: mediapipe-sdk-windows-${{ matrix.arch }}-msvc-${{ hashFiles('sdk/**', '.github/workflows/build-msvc-sdk.yml') }}
           restore-keys: mediapipe-sdk-windows-${{ matrix.arch }}-msvc-
       - name: Select Visual Studio Build Tools
@@ -105,3 +108,8 @@ jobs:
           name: mediapipe-tasks-c-windows-${{ matrix.arch }}-msvc
           path: build-sdk/bin/libmediapipe.dll
           if-no-files-found: error
+      - uses: actions/cache/save@v6.1.0
+        if: ${{ !cancelled() && steps.sdk-cache.outcome == 'success' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ${{ env.SDK_CACHE_PATHS }}
+          key: ${{ steps.sdk-cache.outputs.cache-primary-key }}

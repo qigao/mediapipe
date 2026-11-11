@@ -1,0 +1,86 @@
+--- a/MODULE.bazel
++++ b/MODULE.bazel
+@@ -52,6 +52,9 @@
+ bazel_dep(name = "abseil-cpp", repo_name = "com_google_absl")
+ archive_override(
+     module_name = "abseil-cpp",
++    # Abseil 14d4aed2dd4ed7c1bc3025ef4a4a50b0aa4af06f fixes recursive variant traits on MSVC.
++    patches = ["//third_party:abseil_msvc_variant.diff"],
++    patch_strip = 1,
+     strip_prefix = "abseil-cpp-20260526.0",
+     urls = ["https://github.com/abseil/abseil-cpp/releases/download/20260526.0/abseil-cpp-20260526.0.tar.gz"],
+ )
+--- a/WORKSPACE
++++ b/WORKSPACE
+@@ -458,6 +458,8 @@
+ http_archive(
+     name = "pffft",
+     build_file = "@//third_party:pffft.BUILD",
++    patch_args = ["-p1"],
++    patches = ["@//third_party:pffft_msvc_neon.diff"],
+     strip_prefix = "jpommier-pffft-7c3b5a7dc510",
+     urls = ["https://bitbucket.org/jpommier/pffft/get/7c3b5a7dc510.zip"],
+ )
+--- /dev/null
++++ b/third_party/abseil_msvc_variant.diff
+@@ -0,0 +1,40 @@
++--- a/absl/meta/type_traits.h
+++++ b/absl/meta/type_traits.h
++@@ -41,6 +41,7 @@
++ #include <string_view>
++ #include <type_traits>
++ #include <utility>
+++#include <variant>
++ #include <vector>
++ 
++ #include "absl/base/attributes.h"
++@@ -583,6 +584,14 @@ struct IsOwner<std::basic_string<T, Traits, Alloc>> : std::true_type {};
++ template <typename T, typename Alloc>
++ struct IsOwner<std::vector<T, Alloc>> : std::true_type {};
++ 
+++template <typename... T>
+++struct IsOwner<std::variant<T...>>
+++    : std::bool_constant<(sizeof...(T) > 0) &&
+++                         // Uses a C++17 fold expression where '...' unpacks the
+++                         // parameter pack T, and 'true &&' provides the base
+++                         // case for the logical AND operation across all types.
+++                         (true && ... && IsOwner<T>::value)> {};
+++
++ // Detects if a class's definition has declared itself to be a view by declaring
++ //   using absl_internal_is_view = std::true_type;
++ // as a member.
++@@ -620,6 +629,14 @@ struct IsView<std::pair<T1, T2>>
++ template <typename Char, typename Traits>
++ struct IsView<std::basic_string_view<Char, Traits>> : std::true_type {};
++ 
+++template <typename... T>
+++struct IsView<std::variant<T...>>
+++    : std::bool_constant<(sizeof...(T) > 0) &&
+++                         // Uses a C++17 fold expression where '...' unpacks the
+++                         // parameter pack T, and 'true &&' provides the base
+++                         // case for the logical AND operation across all types.
+++                         (true && ... && IsView<T>::value)> {};
+++
++ #ifdef __cpp_lib_span
++ template <typename T>
++ struct IsView<std::span<T>> : std::true_type {};
+--- /dev/null
++++ b/third_party/pffft_msvc_neon.diff
+@@ -0,0 +1,17 @@
++--- a/pffft.c
+++++ b/pffft.c
++@@ -149,8 +149,12 @@
++ /*
++   ARM NEON support macros
++ */
++-#elif !defined(PFFFT_SIMD_DISABLE) && (defined(__arm__) || defined(__aarch64__) || defined(__arm64__))
++-#  include <arm_neon.h>
+++#elif !defined(PFFFT_SIMD_DISABLE) && (defined(__arm__) || defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64))
+++#  if defined(_MSC_VER) && defined(_M_ARM64)
+++#    include <arm64_neon.h>
+++#  else
+++#    include <arm_neon.h>
+++#  endif
++ typedef float32x4_t v4sf;
++ #  define SIMD_SZ 4
++ #  define VZERO() vdupq_n_f32(0)

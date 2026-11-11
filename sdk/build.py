@@ -106,7 +106,9 @@ def prepare(work, downloads, target, profile, compiler=None, opencv_archive=None
         apply_source_patch(source, patch, work)
     if target == "windows":
         apply_source_patch(source, SDK / "patches/windows/audio-tools-glog.diff", work)
-        if not msvc:
+        if msvc:
+            apply_source_patch(source, SDK / "patches/windows/msvc-dependencies.diff", work)
+        else:
             for patch in ("mingw-dependency-flags.diff", "mingw-pffft.diff", "mingw-litert-lm-link.diff"):
                 apply_source_patch(source, SDK / "patches/windows" / patch, work)
     package = source / "qigao_sdk"
@@ -344,6 +346,10 @@ def build_flags(target, arch, msvc=False):
                 "--per_file_copt=farmhash[.]cc$@/DFARMHASH_NO_BUILTIN_EXPECT",
                 "--conlyopt=/std:c11",
                 "--conlyopt=/experimental:c11atomics",
+                "--copt=/Zc:preprocessor",
+                "--host_copt=/Zc:preprocessor",
+                "--cxxopt=/Zc:__cplusplus",
+                "--host_cxxopt=/Zc:__cplusplus",
                 "--copt=/DNOMINMAX",
                 "--host_copt=/DNOMINMAX",
                 "--copt=/D_USE_MATH_DEFINES",
