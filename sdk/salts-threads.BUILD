@@ -1,7 +1,7 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 # Compile the released Salts implementation unchanged as a private static
-# dependency of MediaPipe's GL context. No second Core DLL or public Core ABI.
+# dependency of MediaPipe's GL context and pthreadpool.
 cc_library(
     name = "threads",
     srcs = [
@@ -14,7 +14,7 @@ cc_library(
         "core/src/threads/portable_tss_win.c",
     ],
     hdrs = glob(["core/include/**/*.h", "core/src/threads/*.h"]),
-    includes = ["core/include"],
+    includes = ["core/include", "core/include/threads"],
     local_defines = ["SALTS_API=", "WIN32_LEAN_AND_MEAN", "_WIN32_WINNT=0x0A00"],
     visibility = ["//visibility:public"],
 )

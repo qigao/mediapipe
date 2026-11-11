@@ -10,7 +10,16 @@ diff --git a/WORKSPACE b/WORKSPACE
      # `curl -L <url> | shasum -a 256`
      sha256 = "13ae01126b6d4a8b6769433c2a942d6204a3f97157d9c83d79cbfeec1041398c",
      strip_prefix = "XNNPACK-53a1797ba4360cbde068f2a984652be0f0b7b6fe",
-@@ -256,6 +258,8 @@
+@@ -246,6 +248,8 @@
+ 
+ http_archive(
+     name = "cpuinfo",
++    patch_args = ["-p1"],
++    patches = ["@//third_party:cpuinfo_nominmax.diff"],
+     sha256 = "9213f6f81784eb8679f0621ad1c20eac711e063cb9c7712738720609cbdf1c33",
+     strip_prefix = "cpuinfo-ea6b9f1bb6e1001d8b21574d5bc78ddef62e499d",
+     urls = [
+@@ -256,6 +260,8 @@
  # pthreadpool is a dependency of XNNPACK.
  http_archive(
      name = "pthreadpool",
@@ -19,7 +28,7 @@ diff --git a/WORKSPACE b/WORKSPACE
      # `curl -L <url> | shasum -a 256`
      sha256 = "5ab4e8f63e3dcf62048360c216532bdf62f00dc204883a52d91230402f0feb6a",
      strip_prefix = "pthreadpool-02460584c6092e527c8b89f7df4de143d70e801f",
-@@ -285,6 +289,7 @@
+@@ -285,6 +291,7 @@
          "@//third_party:org_tensorflow_combine_cc_tests_link_extra_lib.diff",
          # Works around b/564636414
          "@//third_party:org_tensorflow_xla_llvm_url.diff",
@@ -27,7 +36,7 @@ diff --git a/WORKSPACE b/WORKSPACE
      ],
      sha256 = _TENSORFLOW_SHA256,
      strip_prefix = "tensorflow-%s" % _TENSORFLOW_GIT_COMMIT,
-@@ -873,6 +878,7 @@
+@@ -873,6 +880,7 @@
          "@//third_party:litert_custom_ops.diff",
          "@//third_party:litert_internal_fbs_fix.diff",
          "@//third_party:litert_angle_windows.diff",
@@ -225,15 +234,66 @@ new file mode 100644
 +         ":linux_arm": ["@cpuinfo"],
 +         ":linux_armeabi": ["@cpuinfo"],
 +         ":linux_armhf": ["@cpuinfo"],
-+diff --git a/src/threadpool-atomics.h b/src/threadpool-atomics.h
-+--- a/src/threadpool-atomics.h
-++++ b/src/threadpool-atomics.h
-+@@ -48,6 +48,8 @@
-+ /* POSIX headers */
-+ #if PTHREADPOOL_USE_PTHREADS
-+ #include <pthread.h>
-++#elif defined(_WIN32)
-++#include <threads/threads.h>
-+ #else
-+ #include <threads.h>
++diff --git a/src/pthreads.c b/src/pthreads.c
++--- a/src/pthreads.c
+++++ b/src/pthreads.c
++@@ -79,7 +79,7 @@
++ #define alloca _alloca
++ #elif !defined(alloca) && defined(__GNUC__)
++ #define alloca(s) __builtin_alloca(s)
++-#else
+++#elif !defined(alloca)
++ #include <alloca.h>
 + #endif
++ 
+diff --git a/third_party/cpuinfo_nominmax.diff b/third_party/cpuinfo_nominmax.diff
+new file mode 100644
+--- /dev/null
++++ b/third_party/cpuinfo_nominmax.diff
+@@ -0,0 +1,46 @@
++diff --git a/src/x86/windows/init.c b/src/x86/windows/init.c
++--- a/src/x86/windows/init.c
+++++ b/src/x86/windows/init.c
++@@ -125,9 +125,10 @@
++ 
++ 	const uint32_t thread_bits_mask = bit_mask(x86_processor.topology.thread_bits_length);
++ 	const uint32_t core_bits_mask = bit_mask(x86_processor.topology.core_bits_length);
++-	const uint32_t package_bits_offset =
++-		max(x86_processor.topology.thread_bits_offset + x86_processor.topology.thread_bits_length,
++-		    x86_processor.topology.core_bits_offset + x86_processor.topology.core_bits_length);
+++	const uint32_t thread_bits_end =
+++		x86_processor.topology.thread_bits_offset + x86_processor.topology.thread_bits_length;
+++	const uint32_t core_bits_end = x86_processor.topology.core_bits_offset + x86_processor.topology.core_bits_length;
+++	const uint32_t package_bits_offset = thread_bits_end > core_bits_end ? thread_bits_end : core_bits_end;
++ 
++ 	/* WINE doesn't implement GetMaximumProcessorGroupCount and aborts when
++ 	 * calling it */
++@@ -181,7 +182,7 @@
++ 		}
++ 	}
++ 
++-	DWORD max_info_size = max(cores_info_size, packages_info_size);
+++	DWORD max_info_size = cores_info_size > packages_info_size ? cores_info_size : packages_info_size;
++ 
++ 	processor_infos = HeapAlloc(heap, 0, max_info_size);
++ 	if (processor_infos == NULL) {
++@@ -238,7 +239,7 @@
++ 		}
++ 	}
++ 
++-	max_info_size = max(cores_info_size, packages_info_size);
+++	max_info_size = cores_info_size > packages_info_size ? cores_info_size : packages_info_size;
++ 	if (GetLogicalProcessorInformationEx(RelationProcessorCore, processor_infos, &max_info_size) == FALSE) {
++ 		cpuinfo_log_error(
++ 			"failed to query processor cores information: error %" PRIu32, (uint32_t)GetLastError());
++diff --git a/BUILD.bazel b/BUILD.bazel
++--- a/BUILD.bazel
+++++ b/BUILD.bazel
++@@ -215,6 +215,7 @@
++         "src/arm/android/api.h",
++         "src/arm/linux/api.h",
++         "src/arm/linux/cp.h",
+++        "src/arm/windows/windows-arm-init.h",
++         "src/arm/api.h",
++         "src/arm/midr.h",
++         "src/riscv/api.h",
