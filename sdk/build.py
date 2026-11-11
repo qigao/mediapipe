@@ -110,6 +110,18 @@ def prepare(work, downloads, target, profile, angle=None, compiler=None):
     if target == "windows":
         shutil.copytree(SDK / "windows", package / "windows")
         shutil.copytree(SDK / "toolchains", package / "toolchains")
+        swift_patch = "local-toolchain.diff"
+        shutil.copyfile(SDK / "patches/rules_swift" / swift_patch, package / "windows" / swift_patch)
+        with (source / "MODULE.bazel").open("a", encoding="utf-8", newline="\n") as module:
+            module.write(
+                '\n# The Windows C++ SDK does not use a local Swift toolchain.\n'
+                'single_version_override(\n'
+                '    module_name = "rules_swift",\n'
+                '    version = "2.3.0",\n'
+                f'    patches = ["//qigao_sdk/windows:{swift_patch}"],\n'
+                '    patch_strip = 1,\n'
+                ')\n'
+            )
         config = package / "toolchains/compiler.bzl"
         config.write_text(f'COMPILER_ROOT = {json.dumps(compiler.as_posix())}\n')
     return source, ocv
