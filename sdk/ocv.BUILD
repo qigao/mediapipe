@@ -1,11 +1,17 @@
 cc_import(
     name = "imgproc",
-    static_library = "lib/libopencv_imgproc.a",
+    static_library = select({
+        "@platforms//os:windows": "lib/libopencv_imgproc4110.a",
+        "//conditions:default": "lib/libopencv_imgproc.a",
+    }),
 )
 
 cc_import(
     name = "core",
-    static_library = "lib/libopencv_core.a",
+    static_library = select({
+        "@platforms//os:windows": "lib/libopencv_core4110.a",
+        "//conditions:default": "lib/libopencv_core.a",
+    }),
 )
 
 cc_library(

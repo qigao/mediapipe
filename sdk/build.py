@@ -103,6 +103,8 @@ def prepare(work, downloads, target, profile, angle=None, compiler=None):
                 stream.write(f'\nlocal_repository(name = "{name}", path = {json.dumps(path.as_posix())})\n')
     for patch in sorted((SDK / "patches").glob("*.diff")):
         apply_source_patch(source, patch, work)
+    if target == "windows":
+        apply_source_patch(source, SDK / "patches/windows/audio-tools-glog.diff", work)
     package = source / "qigao_sdk"
     package.mkdir()
     for name in ("BUILD.bazel", "export.bzl"):
@@ -302,6 +304,8 @@ def build_flags(target, arch):
             "--compiler=mingw-gcc",
             "--copt=-DNOMINMAX",
             "--host_copt=-DNOMINMAX",
+            "--copt=-D_USE_MATH_DEFINES",
+            "--host_copt=-D_USE_MATH_DEFINES",
             "--define=xnn_enable_avx512fp16=false",
             "--define=xnn_enable_avx512amx=false",
         ]

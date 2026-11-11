@@ -1,0 +1,10 @@
+--- a/third_party/pffft.BUILD
++++ b/third_party/pffft.BUILD
+@@ -18,7 +18,3 @@
+     hdrs = ["pffft.h"],
+     copts = select({
+-        "@bazel_tools//src/conditions:windows": [
+-            "/D_USE_MATH_DEFINES",
+-            "/W0",
+-        ],
+         # pffft uses Neon. With NDK 28 and probably onward, we need to
