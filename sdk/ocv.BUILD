@@ -17,11 +17,13 @@ cc_import(
 cc_library(
     name = "opencv",
     hdrs = glob([
+        "include/opencv2/**",
         "include/opencv4/opencv2/**",
         "sdk/native/jni/include/opencv2/**",
     ]),
     includes = select({
         "@platforms//os:android": ["sdk/native/jni/include"],
+        "@platforms//os:windows": ["include"],
         "//conditions:default": ["include/opencv4"],
     }),
     linkopts = select({
