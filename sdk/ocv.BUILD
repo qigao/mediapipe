@@ -1,7 +1,9 @@
+load(":toolchain.bzl", "MSVC")
+
 cc_import(
     name = "imgproc",
     static_library = select({
-        "@platforms//os:windows": "lib/libopencv_imgproc4110.a",
+        "@platforms//os:windows": "lib/opencv_imgproc4110.lib" if MSVC else "lib/libopencv_imgproc4110.a",
         "//conditions:default": "lib/libopencv_imgproc.a",
     }),
 )
@@ -9,7 +11,7 @@ cc_import(
 cc_import(
     name = "core",
     static_library = select({
-        "@platforms//os:windows": "lib/libopencv_core4110.a",
+        "@platforms//os:windows": "lib/opencv_core4110.lib" if MSVC else "lib/libopencv_core4110.a",
         "//conditions:default": "lib/libopencv_core.a",
     }),
 )
@@ -27,7 +29,7 @@ cc_library(
         "//conditions:default": ["include/opencv4"],
     }),
     linkopts = select({
-        "@platforms//os:windows": ["-luser32", "-ladvapi32", "-lole32"],
+        "@platforms//os:windows": ["user32.lib", "advapi32.lib", "ole32.lib"] if MSVC else ["-luser32", "-ladvapi32", "-lole32"],
         "@platforms//os:android": ["-landroid", "-ldl", "-llog", "-lm"],
         "@platforms//os:macos": ["-framework Accelerate", "-framework Foundation"],
         "@platforms//os:linux": ["-ldl", "-lm", "-lpthread", "-lrt"],

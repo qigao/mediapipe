@@ -9,12 +9,14 @@ The [native SDK workflow](.github/workflows/build-native-sdk.yml) builds the Med
 | macOS | ARM64 | Metal | macOS 15 on ARM64 |
 | Windows | x64, ARM64 | CPU with XNNPACK | Windows on the target architecture, LLVM-MinGW |
 
-Build with Bazel 7.7.0 and Clang (C++20). Install the EGL and OpenGL ES development headers on Linux. Set `ANDROID_NDK_HOME` to NDK 27.3.13750724 for Android cross-builds.
+Build with Bazel 7.7.0 and a C++20 compiler. Install the EGL and OpenGL ES development headers on Linux. Set `ANDROID_NDK_HOME` to NDK 27.3.13750724 for Android cross-builds.
 
 ```sh
 CC=clang CXX=clang++ python3 -B sdk/build.py --target linux --arch x64 --bazel /path/to/bazel
 ```
 
 On Windows, select `BaseOptions::CPU` to use XNNPACK. The CMake package exposes `MediaPipe_CPU_DELEGATE=xnnpack` and `MediaPipe_GPU_ENABLED=FALSE`. XNNPACK's pthreadpool links the C11 thread implementation from SaltsBase 0.1.3 statically.
+
+The [MSVC workflow](.github/workflows/build-msvc-sdk.yml) builds Windows x64 and ARM64 SDKs against matching OpenCVLite MSVC artifacts. It uploads `windows-x64-msvc` and `windows-arm64-msvc` archives for the MSVC C++ ABI with the DLL runtime (`/MD`). For a local MSVC build, pass `--windows-toolchain msvc --opencv-archive /path/to/opencv-sdk.tar.gz` and use Visual Studio Build Tools.
 
 The SDK archives are staged in `build-sdk/`. Point CMake at the archive for the target OS and architecture and use `find_package(MediaPipe 1.2.2 EXACT CONFIG REQUIRED)`. An `sdk-v*` tag publishes the seven SDK archives and their SHA-256 checksums after the build jobs pass.

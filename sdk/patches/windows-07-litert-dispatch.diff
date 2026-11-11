@@ -1,10 +1,9 @@
 diff --git a/WORKSPACE b/WORKSPACE
 --- a/WORKSPACE
 +++ b/WORKSPACE
-@@ -880,6 +880,7 @@
+@@ -880,5 +880,6 @@
          "@//third_party:litert_custom_ops.diff",
          "@//third_party:litert_internal_fbs_fix.diff",
-         "@//third_party:litert_mingw.diff",
 +        "@//third_party:litert_dispatch_windows.diff",
      ],
      sha256 = "ec32db733e93501c693a8ab99e413c2d5d746dee7d452a8d6912046d7bc5c04e",
