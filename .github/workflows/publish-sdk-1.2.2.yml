@@ -1,0 +1,242 @@
+name: Publish and verify MediaPipe Tasks SDK 1.2.2
+
+on:
+  push:
+    branches: [ci/release-sdk-v1.2.2]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-sdk-v1.2.2
+
+jobs:
+  release:
+    name: Publish checked SDK archives
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    outputs:
+      checksums_sha256: ${{ steps.publish.outputs.sha256 }}
+    env:
+      TAG: sdk-v1.2.2
+      RELEASE_COMMIT: 31386855903c3e7579c56404911f538ba45f7162
+      TESTED_TREE: ce757e9d971dd06798241b6fadb5f0a8aef1bcd3
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify the seven archives from native SDK CI #46
+        shell: bash
+        run: |
+          tree=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$RELEASE_COMMIT" --jq .tree.sha)
+          [[ "$tree" == "$TESTED_TREE" ]]
+          staging="$RUNNER_TEMP/sdk-release"
+          mkdir -p "$staging/assets"
+          while read -r platform artifact digest; do
+            archive="mediapipe-tasks-1.2.2-$platform.tar.gz"
+            zip="$staging/$archive.zip"
+            curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact/zip" \
+              -o "$zip"
+            printf '%s  %s\n' "$digest" "$zip" | sha256sum -c -
+            [[ "$(unzip -Z1 "$zip")" == "$archive" ]]
+            unzip -p "$zip" "$archive" > "$staging/assets/$archive"
+            test -s "$staging/assets/$archive"
+            rm -- "$zip"
+          done <<'ARTIFACTS'
+          android-arm64 13911120332 6f8065a2e62be54e4739f3f346ab9a3e185cbbf23026f6163716358fffd7ea81
+          android-x64 13911186961 879f8d033ad279f1a12731e8b77bf37901ca5fad175e7641dff3e971d4851662
+          linux-arm64 13910282978 e677631c21a1ef16648312eee7d44b1815155f585e93deb24ef69e21ae4f909e
+          linux-x64 13911341630 9e39c1d0108a1cd38423f3d98ed6b77a466aff2e41f22b9f8d756ea9f65a48a2
+          macos-arm64 13910995540 87f20c9f0e6c8b87850690488359f47082f32c66adfd5616e50dfdbff296db29
+          windows-arm64 13910033041 47234524ac188ace1aa93f3cee53a892016ef8ccfb98f42870d079778c1d37d5
+          windows-x64 13909924654 6291b48559320e03df288a11b40bcdff025b7f140fbfa328c96b6ea8cf8df28c
+          ARTIFACTS
+          cd "$staging/assets"
+          LC_ALL=C sha256sum mediapipe-tasks-*.tar.gz > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cat > "$staging/notes.md" <<'RELEASE_NOTES'
+          MediaPipe Tasks C++ SDK 1.2.2 for Linux, Windows, and Android (x64 and ARM64) and macOS ARM64.
+
+          - Import the CMake target `MediaPipe::Tasks`.
+          - Windows uses LLVM-MinGW and CPU inference with XNNPACK.
+          - macOS includes the CoreVideo RGBA upload fix for Metal.
+          - Verify the archive against `SHA256SUMS`.
+
+          The archives were built in [native SDK CI #46](https://github.com/qigao/mediapipe/actions/runs/43138729308) and passed [GDMP validation on seven targets](https://github.com/qigao/mediapipe/actions/runs/43151421003).
+          RELEASE_NOTES
+      - name: Publish the tagged GitHub release
+        id: publish
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/sdk-release/assets"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$RELEASE_COMMIT" \
+            --title "MediaPipe Tasks SDK 1.2.2" --notes-file ../notes.md \
+            mediapipe-tasks-*.tar.gz SHA256SUMS
+          tag_commit=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)
+          [[ "$tag_commit" == "$RELEASE_COMMIT" ]]
+          curl -fsSL --retry 4 --retry-all-errors \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG/SHA256SUMS" \
+            -o ../published-SHA256SUMS
+          cmp SHA256SUMS ../published-SHA256SUMS
+          digest=$(sha256sum SHA256SUMS | cut -d' ' -f1)
+          printf 'sha256=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+
+
+  build:
+    needs: release
+    name: ${{ matrix.target }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux
+            arch: x64
+            runner: ubuntu-24.04
+            godot_asset: Godot_v4.5.2-stable_linux.x86_64.zip
+            godot_sha: 87f6e6be292929e363d15ed9052f277b2ba4e95ed994e1e099048097be2dfd03
+            godot_bin: Godot_v4.5.2-stable_linux.x86_64
+          - target: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            godot_asset: Godot_v4.5.2-stable_linux.arm64.zip
+            godot_sha: 97ad6d1b74020bd591520e4f8810c6a07451af75eefa0932f57daeb805124618
+            godot_bin: Godot_v4.5.2-stable_linux.arm64
+          - target: android
+            arch: x64
+            runner: ubuntu-24.04
+            android_abi: x86_64
+            godot_arch: x86_64
+          - target: android
+            arch: arm64
+            runner: ubuntu-24.04
+            android_abi: arm64-v8a
+            godot_arch: arm64
+          - target: macos
+            arch: arm64
+            runner: macos-15
+            osx_arch: arm64
+            godot_asset: Godot_v4.5.2-stable_macos.universal.zip
+            godot_sha: 2a3f35cf5813b0d26e3f4c15dabc5e7c58407fceec7bae5291740772f72d141a
+            godot_bin: Godot.app/Contents/MacOS/Godot
+          - target: windows
+            arch: x64
+            runner: windows-2025
+            godot_asset: Godot_v4.5.2-stable_win64.exe.zip
+            godot_sha: 3766090865330ab2a0ed33594520394b711c620b1378f9223904faeef60f2f14
+            godot_bin: Godot_v4.5.2-stable_win64_console.exe
+          - target: windows
+            arch: arm64
+            runner: windows-11-arm
+            godot_asset: Godot_v4.5.2-stable_windows_arm64.exe.zip
+            godot_sha: cedd4cb614a1c5c51ad1cd983b5d43c37e8c545ab9b397720edb885c1bd57538
+            godot_bin: Godot_v4.5.2-stable_windows_arm64_console.exe
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: qigao/godot-plugins
+          ref: 9a6e5f10835178732107e01f6aa15e4c62064ec8
+          persist-credentials: false
+      - uses: qigao/vcpkg-cache/.github/actions/setup-llvm-mingw@v0.1.3
+        id: mingw
+        if: matrix.target == 'windows'
+        with:
+          target: ${{ matrix.arch }}
+          build-type: toolchain-only
+      - name: Install EGL and OpenGL ES libraries
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libegl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri
+      - name: Build the GDMP extension
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+          SDK_TAG: sdk-v1.2.2
+          SDK_CHECKSUMS_SHA: ${{ needs.release.outputs.checksums_sha256 }}
+          ANDROID_ABI: ${{ matrix.android_abi }}
+          OSX_ARCH: ${{ matrix.osx_arch }}
+          MINGW_TOOLCHAIN: ${{ steps.mingw.outputs.toolchain-file }}
+        run: |
+          [[ "$SDK_TAG" =~ ^sdk-v1\.2\.2(-[A-Za-z0-9.-]+)?$ ]]
+          [[ "$SDK_CHECKSUMS_SHA" =~ ^[0-9a-f]{64}$ ]]
+          inputs="$RUNNER_TEMP/gdmp"
+          mkdir -p "$inputs"/{bindings,mediapipe}
+          download() {
+            local url=$1 sha=$2 file=$3
+            curl -fsSL --retry 3 "$url" -o "$file"
+            if [[ "$TARGET" == windows ]]; then
+              printf '%s  %s\n' "$sha" "$file" | sha256sum -c -
+            else
+              printf '%s  %s\n' "$sha" "$file" | shasum -a 256 -c -
+            fi
+          }
+
+          release="https://github.com/qigao/mediapipe/releases/download/$SDK_TAG"
+          sdk="mediapipe-tasks-1.2.2-$TARGET-$ARCH.tar.gz"
+          download "$release/SHA256SUMS" "$SDK_CHECKSUMS_SHA" "$inputs/SHA256SUMS"
+          sdk_sha=$(awk -v file="$sdk" '$2 == file { print $1 }' "$inputs/SHA256SUMS")
+          [[ "$sdk_sha" =~ ^[0-9a-f]{64}$ ]]
+          download "$release/$sdk" "$sdk_sha" "$inputs/$sdk"
+          bindings=e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77
+          download "https://codeload.github.com/godotengine/godot-cpp/tar.gz/$bindings" \
+            d4c03daf46c8bef4544614182b0762c3e32789151c7f8f44e8eb2053d5cddeba "$inputs/godot-cpp.tar.gz"
+          (
+            cd "$inputs"
+            tar -xzf "$sdk" -C mediapipe
+            tar -xzf godot-cpp.tar.gz --strip-components=1 -C bindings
+          )
+
+          args=()
+          case "$TARGET" in
+            linux) args+=(-DCMAKE_CXX_COMPILER=clang++) ;;
+            macos) args+=(-DCMAKE_CXX_COMPILER=clang++ -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+                         "-DCMAKE_OSX_ARCHITECTURES=$OSX_ARCH") ;;
+            android) args+=("-DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/27.3.13750724/build/cmake/android.toolchain.cmake"
+                           "-DANDROID_ABI=$ANDROID_ABI" -DANDROID_PLATFORM=android-26) ;;
+            windows) args+=("-DCMAKE_TOOLCHAIN_FILE=$MINGW_TOOLCHAIN") ;;
+          esac
+          cmake -S src/gdmp -B build-gdmp-sdk -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            "-DMediaPipe_DIR=$inputs/mediapipe/lib/cmake/MediaPipe" \
+            "-DGODOT_CPP_DIR=$inputs/bindings" "${args[@]}"
+          cmake --build build-gdmp-sdk --parallel 4
+      - name: Run face, hand, and pose inference in Godot
+        if: matrix.target != 'android'
+        shell: bash
+        env:
+          GODOT_ASSET: ${{ matrix.godot_asset }}
+          GODOT_SHA: ${{ matrix.godot_sha }}
+          GODOT_BIN: ${{ matrix.godot_bin }}
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          inputs="$RUNNER_TEMP/gdmp"
+          curl -fsSL --retry 3 "https://github.com/godotengine/godot-builds/releases/download/4.5.2-stable/$GODOT_ASSET" \
+            -o "$inputs/godot.zip"
+          if [[ $OSTYPE == darwin* ]]; then
+            printf '%s  %s\n' "$GODOT_SHA" "$inputs/godot.zip" | shasum -a 256 -c -
+          else
+            printf '%s  %s\n' "$GODOT_SHA" "$inputs/godot.zip" | sha256sum -c -
+          fi
+          mkdir "$inputs/engine"
+          (cd "$inputs/engine" && cmake -E tar xf ../godot.zip)
+          bash tests/mediapipe/run.sh build-gdmp-sdk "$inputs/engine/$GODOT_BIN"
+      - name: Check the Android library
+        if: matrix.target == 'android'
+        shell: bash
+        env:
+          GODOT_ARCH: ${{ matrix.godot_arch }}
+        run: |
+          python3 -B tests/mediapipe/check_android.py \
+            "build-gdmp-sdk/addons/GDMP/libs/$GODOT_ARCH/libGDMP.android.so" \
+            "$ANDROID_HOME/ndk/27.3.13750724" "$GODOT_ARCH"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: gdmp-sdk-${{ matrix.target }}-${{ matrix.arch }}
+          path: build-gdmp-sdk/addons/GDMP
+          if-no-files-found: error
