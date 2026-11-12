@@ -1,4 +1,4 @@
-name: GDMP validation with the native CI SDK
+name: Validate macOS CoreVideo upload inside MediaPipe
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           repository: qigao/godot-plugins
-          ref: 9a1f89ad002dbc834daca1e003d4d82c503b5e5b
+          ref: 9a6e5f10835178732107e01f6aa15e4c62064ec8
           persist-credentials: false
       - uses: actions/download-artifact@v8.0.1
         with:
@@ -37,24 +37,10 @@ jobs:
           run-id: 43123166519
           name: mediapipe-native-${{ matrix.target }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/gdmp
-      - name: Supply a CoreVideo-backed image to Metal
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("src/gdmp/GDMP/util/image.cc")
-          source = path.read_text()
-          source = source.replace('#include "GDMP/util/image.h"', '#include "GDMP/util/image.h"\n\n#include "mediapipe/objc/util.h"')
-          old = "return mediapipe::Image(get_image_frame(image));"
-          new = """auto frame = get_image_frame(image);
-          \tif (frame && frame->Format() == mediapipe::ImageFormat::SRGBA) {
-          \t\tauto pixel_buffer = CreateCVPixelBufferForImageFrame(std::move(frame), false);
-          \t\tERR_FAIL_COND_V_MSG(!pixel_buffer.ok(), mediapipe::Image(), pixel_buffer.status().ToString().c_str());
-          \t\treturn mediapipe::Image(**pixel_buffer);
-          \t}
-          \treturn mediapipe::Image(std::move(frame));"""
-          assert source.count(old) == 1
-          path.write_text(source.replace(old, new))
-          PY
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: .sdk-validation
+          persist-credentials: false
       - name: Build the GDMP extension
         shell: bash
         env:
@@ -83,6 +69,29 @@ jobs:
             tar -xzf "$sdk" -C mediapipe
             tar -xzf godot-cpp.tar.gz --strip-components=1 -C bindings
           )
+
+          source=mediapipe/calculators/image/image_clone_calculator.cc
+          revision=2c2d4a7454d6358e0d6f0b54e254d231fe4cc78f
+          mkdir -p "$inputs/patched/$(dirname "$source")"
+          download "https://raw.githubusercontent.com/google-ai-edge/mediapipe/$revision/$source" \
+            1105ce4b4a81c6c8a33f4b8442d8abb3b367c539b42b1cfb2cf64c223fb8fdb5 "$inputs/patched/$source"
+          (
+            cd "$inputs/patched"
+            git apply --include="$source" "$GITHUB_WORKSPACE/.sdk-validation/sdk/patches/macos-corevideo-image-clone.diff"
+          )
+          python3 - "$inputs" "$source" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+          inputs, source = Path(sys.argv[1]), sys.argv[2]
+          config = inputs / "mediapipe/lib/cmake/MediaPipe/MediaPipeConfig.cmake"
+          text, count = re.subn(r'^  "\$<LINK_LIBRARY:WHOLE_ARCHIVE,[^>]+/libimage_clone_calculator\.(?:a|lo)>"\n',
+                                '', config.read_text(), flags=re.MULTILINE)
+          assert count == 1, count
+          config.write_text(text)
+          with Path("src/gdmp/CMakeLists.txt").open("a") as cmake:
+              cmake.write(f'\ntarget_sources(gdmp PRIVATE "{inputs / "patched" / source}")\n')
+          PY
 
           cmake -S src/gdmp -B build-gdmp-sdk -G Ninja -DCMAKE_BUILD_TYPE=Release \
             "-DMediaPipe_DIR=$inputs/mediapipe/lib/cmake/MediaPipe" "-DGODOT_CPP_DIR=$inputs/bindings" \

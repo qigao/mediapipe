@@ -1,0 +1,45 @@
+diff --git a/mediapipe/calculators/image/image_clone_calculator.cc b/mediapipe/calculators/image/image_clone_calculator.cc
+--- a/mediapipe/calculators/image/image_clone_calculator.cc
++++ b/mediapipe/calculators/image/image_clone_calculator.cc
+@@ -21,6 +21,9 @@
+ 
+ #if !MEDIAPIPE_DISABLE_GPU
+ #include "mediapipe/gpu/gl_calculator_helper.h"
++#if MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER && TARGET_OS_OSX
++#include "mediapipe/objc/util.h"
++#endif
+ #endif  // !MEDIAPIPE_DISABLE_GPU
+ 
+ namespace mediapipe {
+@@ -103,6 +106,18 @@
+ 
+     if (output_on_gpu_ && !input_on_gpu) {
+ #if !MEDIAPIPE_DISABLE_GPU
++#if MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER && TARGET_OS_OSX
++      // Metal consumes CoreVideo storage. Upload packed RGBA directly to avoid
++      // copying through an OpenGL rectangle texture.
++      if (output->image_format() == mediapipe::ImageFormat::SRGBA) {
++        ABSL_ASSIGN_OR_RETURN(auto pixel_buffer,
++                              CreateCVPixelBufferForImageFrame(
++                                  output->GetImageFrameSharedPtr(),
++                                  /*can_overwrite=*/false));
++        kOut(cc).Send(std::make_unique<Image>(*pixel_buffer));
++        return absl::OkStatus();
++      }
++#endif
+       if (!gpu_initialized_) {
+         ABSL_RETURN_IF_ERROR(gpu_helper_.Open(cc));
+         gpu_initialized_ = true;
+diff --git a/mediapipe/calculators/image/BUILD b/mediapipe/calculators/image/BUILD
+--- a/mediapipe/calculators/image/BUILD
++++ b/mediapipe/calculators/image/BUILD
+@@ -528,6 +528,9 @@
+         "//conditions:default": [
+             "//mediapipe/gpu:gl_calculator_helper",
+         ],
++    }) + select({
++        "//mediapipe:macos": ["//mediapipe/objc:util"],
++        "//conditions:default": [],
+     }),
+     alwayslink = 1,
+ )
