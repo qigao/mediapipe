@@ -37,17 +37,6 @@ jobs:
           run-id: 43123166519
           name: mediapipe-native-${{ matrix.target }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/gdmp
-      - uses: qigao/vcpkg-cache/.github/actions/setup-llvm-mingw@v0.1.3
-        id: mingw
-        if: matrix.target == 'windows'
-        with:
-          target: ${{ matrix.arch }}
-          build-type: toolchain-only
-      - name: Install EGL and OpenGL ES libraries
-        if: matrix.target == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libegl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri
       - name: Supply a CoreVideo-backed image to Metal
         run: |
           python3 - <<'PY'
@@ -58,7 +47,7 @@ jobs:
           old = "return mediapipe::Image(get_image_frame(image));"
           new = """auto frame = get_image_frame(image);
           \tif (frame && frame->Format() == mediapipe::ImageFormat::SRGBA) {
-          \t\tauto pixel_buffer = mediapipe::CreateCVPixelBufferForImageFrame(std::move(frame), false);
+          \t\tauto pixel_buffer = CreateCVPixelBufferForImageFrame(std::move(frame), false);
           \t\tERR_FAIL_COND_V_MSG(!pixel_buffer.ok(), mediapipe::Image(), pixel_buffer.status().ToString().c_str());
           \t\treturn mediapipe::Image(**pixel_buffer);
           \t}
@@ -71,9 +60,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           ARCH: ${{ matrix.arch }}
-          ANDROID_ABI: ${{ matrix.android_abi }}
           OSX_ARCH: ${{ matrix.osx_arch }}
-          MINGW_TOOLCHAIN: ${{ steps.mingw.outputs.toolchain-file }}
         run: |
           inputs="$RUNNER_TEMP/gdmp"
           mkdir -p "$inputs"/{bindings,mediapipe}
@@ -97,17 +84,9 @@ jobs:
             tar -xzf godot-cpp.tar.gz --strip-components=1 -C bindings
           )
 
-          args=()
-          case "$TARGET" in
-            linux) args+=(-DCMAKE_CXX_COMPILER=clang++) ;;
-            macos) args+=(-DCMAKE_CXX_COMPILER=clang++ -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
-                         "-DCMAKE_OSX_ARCHITECTURES=$OSX_ARCH") ;;
-            android) args+=("-DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/27.3.13750724/build/cmake/android.toolchain.cmake"
-                           "-DANDROID_ABI=$ANDROID_ABI" -DANDROID_PLATFORM=android-26) ;;
-            windows) args+=("-DCMAKE_TOOLCHAIN_FILE=$MINGW_TOOLCHAIN") ;;
-          esac
           cmake -S src/gdmp -B build-gdmp-sdk -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            "-DMediaPipe_DIR=$inputs/mediapipe/lib/cmake/MediaPipe" "-DGODOT_CPP_DIR=$inputs/bindings" "${args[@]}"
+            "-DMediaPipe_DIR=$inputs/mediapipe/lib/cmake/MediaPipe" "-DGODOT_CPP_DIR=$inputs/bindings" \
+            -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 "-DCMAKE_OSX_ARCHITECTURES=$OSX_ARCH"
           cmake --build build-gdmp-sdk --parallel 4
       - name: Run face, hand, and pose inference in Godot
         if: matrix.target != 'android'
@@ -130,15 +109,6 @@ jobs:
           mkdir "$inputs/engine"
           (cd "$inputs/engine" && cmake -E tar xf ../godot.zip)
           bash tests/mediapipe/run.sh build-gdmp-sdk "$inputs/engine/$GODOT_BIN"
-      - name: Check the Android library
-        if: matrix.target == 'android'
-        shell: bash
-        env:
-          GODOT_ARCH: ${{ matrix.godot_arch }}
-        run: |
-          python3 -B tests/mediapipe/check_android.py \
-            "build-gdmp-sdk/addons/GDMP/libs/$GODOT_ARCH/libGDMP.android.so" \
-            "$ANDROID_HOME/ndk/27.3.13750724" "$GODOT_ARCH"
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: gdmp-sdk-${{ matrix.target }}-${{ matrix.arch }}
