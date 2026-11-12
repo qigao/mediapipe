@@ -10,6 +10,7 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 
 SDK = Path(__file__).resolve().parent
 MEDIAPIPE_COMMIT = "2c2d4a7454d6358e0d6f0b54e254d231fe4cc78f"
@@ -56,6 +57,12 @@ def verify(path, checksum, digest):
         raise ValueError(f"SHA-256 mismatch for {path}: expected {checksum}, got {actual}")
 
 
+def fetch_opencv(downloads, profile):
+    filename = f"opencv-4.11.0-static-{profile}.tar.gz"
+    release = f"https://github.com/qigao/ocv/releases/download/v{OCV_VERSION}"
+    return fetch(downloads, f"{release}/{filename}", OCV_SHA[profile])
+
+
 def apply_source_patch(source, patch, ceiling):
     # Git for Windows may check the patch out with CRLF. Source tarballs use LF.
     subprocess.run(["git", "apply", "-"], cwd=source, check=True,
@@ -72,10 +79,7 @@ def prepare(work, downloads, target, profile, compiler=None):
         downloads, f"https://codeload.github.com/google-ai-edge/mediapipe/tar.gz/{MEDIAPIPE_COMMIT}",
         MEDIAPIPE_SHA,
     )
-    opencv = fetch(
-        downloads, f"https://github.com/qigao/ocv/releases/download/v{OCV_VERSION}"
-        f"/opencv-4.11.0-static-{profile}.tar.gz", OCV_SHA[profile],
-    )
+    opencv = fetch_opencv(downloads, profile)
     subprocess.run(["tar", "-xzf", upstream, "--strip-components=1", "-C", source], check=True)
     subprocess.run(["tar", "-xzf", opencv, "-C", ocv / "bazel"], check=True)
     (ocv / "WORKSPACE").write_text('workspace(name = "qigao_ocv")\n', encoding="utf-8")
@@ -103,13 +107,14 @@ def prepare(work, downloads, target, profile, compiler=None):
         apply_source_patch(source, patch, work)
     if target == "windows":
         apply_source_patch(source, SDK / "patches/windows/audio-tools-glog.diff", work)
+        for patch in ("mingw-dependency-flags.diff", "mingw-pffft.diff", "mingw-litert-lm-link.diff"):
+            apply_source_patch(source, SDK / "patches/windows" / patch, work)
     package = source / "qigao_sdk"
     package.mkdir()
     for name in ("BUILD.bazel", "export.bzl"):
         shutil.copyfile(SDK / name, package / name)
     if target == "windows":
         shutil.copytree(SDK / "windows", package / "windows")
-        shutil.copytree(SDK / "toolchains", package / "toolchains")
         swift_patch = "local-toolchain.diff"
         shutil.copyfile(SDK / "patches/rules_swift" / swift_patch, package / "windows" / swift_patch)
         with (source / "MODULE.bazel").open("a", encoding="utf-8", newline="\n") as module:
@@ -122,6 +127,7 @@ def prepare(work, downloads, target, profile, compiler=None):
                 '    patch_strip = 1,\n'
                 ')\n'
             )
+        shutil.copytree(SDK / "toolchains", package / "toolchains")
         config = package / "toolchains/compiler.bzl"
         config.write_text(f'COMPILER_ROOT = {json.dumps(compiler.as_posix())}\n')
     return source, ocv
@@ -144,7 +150,7 @@ def cmake_link_flags(flags, target):
         if flag in {"-framework", "-weak_framework"}:
             flag += " " + next(flags)
         framework = re.fullmatch(r"(-(?:weak_)?framework) ([A-Za-z0-9_]+)", flag)
-        default_library = re.fullmatch(r"-DEFAULTLIB:([A-Za-z0-9_]+)\.lib", flag)
+        default_library = re.fullmatch(r"[-/]DEFAULTLIB:([A-Za-z0-9_.+-]+)\.lib", flag, re.IGNORECASE)
         if target == "macos" and framework:
             result.append(f"-Wl,{framework[1]},{framework[2]}")
         elif target == "windows" and default_library:
@@ -182,8 +188,8 @@ def write_cmake(manifest, prefix, target, profile):
         definitions.append("MEDIAPIPE_DISABLE_GPU=1")
     lines.append("target_compile_definitions(MediaPipe::Tasks INTERFACE " +
                  " ".join(json.dumps(value) for value in dict.fromkeys(definitions)) + ")")
-    for key, system in (("includes", ""), ("system_includes", " SYSTEM")):
-        includes = [f'"${{_mp_root}}/include/{path}"' for path in manifest[key]]
+    for paths, system in ((manifest["includes"], ""), (manifest["system_includes"], " SYSTEM")):
+        includes = [f'"${{_mp_root}}/include/{path}"' for path in dict.fromkeys(paths)]
         if includes:
             lines.append(f"target_include_directories(MediaPipe::Tasks{system} INTERFACE " +
                          " ".join(includes) + ")")
@@ -231,7 +237,7 @@ def stage(output_base, output_path, manifest, prefix, source, ocv, target, profi
 
     calculator = {"windows": "inference_calculator_xnnpack", "macos": "inference_calculator_metal"}.get(
         target, "inference_calculator_gl_advanced")
-    if not any(alwayslink and Path(path).stem.removesuffix(".pic") == f"lib{calculator}"
+    if not any(alwayslink and Path(path).stem.removesuffix(".pic").removesuffix(".lo").removeprefix("lib") == calculator
                for path, alwayslink in manifest["libraries"]):
         raise ValueError(f"{profile} did not retain the {calculator} calculator")
     include = prefix / "include"
@@ -258,6 +264,7 @@ def stage(output_base, output_path, manifest, prefix, source, ocv, target, profi
     if target == "windows":
         metadata["cpu_delegate"] = "xnnpack"
         metadata["salts_threads_version"] = SALTS_BASE_VERSION
+        metadata["windows_toolchain"] = "llvm-mingw"
     (prefix / "manifest.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     notices = prefix / "licenses"
     notices.mkdir()
@@ -303,21 +310,24 @@ def build_flags(target, arch):
             "--extra_toolchains=@androidndk//:all",
         ]
     elif target == "windows":
+        cpu = {"x64": "x64_windows", "arm64": "arm64_windows"}[arch]
         flags += [
             "--enable_platform_specific_config=false",
+            f"--cpu={cpu}",
+            "--define=MEDIAPIPE_DISABLE_GPU=1",
+            "--define=MEDIAPIPE_FORCE_CPU_INFERENCE=true",
+            "--define=tflite_with_xnnpack=true",
+            "--define=xnn_enable_avx512fp16=false",
+            "--define=xnn_enable_avx512amx=false",
+        ]
+        flags += [
             f"--platforms=//qigao_sdk/toolchains:windows_{arch}",
-            "--cpu=" + {"x64": "x64_windows", "arm64": "arm64_windows"}[arch],
             "--extra_toolchains=//qigao_sdk/toolchains:toolchain_x64,//qigao_sdk/toolchains:toolchain_arm64",
             "--compiler=mingw-gcc",
             "--copt=-DNOMINMAX",
             "--host_copt=-DNOMINMAX",
             "--copt=-D_USE_MATH_DEFINES",
             "--host_copt=-D_USE_MATH_DEFINES",
-            "--define=MEDIAPIPE_DISABLE_GPU=1",
-            "--define=MEDIAPIPE_FORCE_CPU_INFERENCE=true",
-            "--define=tflite_with_xnnpack=true",
-            "--define=xnn_enable_avx512fp16=false",
-            "--define=xnn_enable_avx512amx=false",
         ]
     else:
         cpu = {"arm64": "darwin_arm64", "x64": "darwin_x86_64"}[arch]
@@ -335,6 +345,7 @@ def main():
     parser.add_argument("--out", default=Path("build-sdk"), type=Path)
     parser.add_argument("--jobs", default=4, type=int)
     parser.add_argument("--compiler", type=Path, help="LLVM-MinGW installation for Windows")
+    parser.add_argument("--shared", action="store_true", help="Also build the Tasks C shared library")
     args = parser.parse_args()
     host_arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower())
     arch = args.arch or host_arch
@@ -350,8 +361,10 @@ def main():
             parser.error(f"Android requires NDK {ANDROID_NDK}.")
         os.environ["ANDROID_NDK_HOME"] = str(ndk)
     elif args.target == "windows":
-        if host != "Windows" or arch != host_arch or not args.compiler:
-            parser.error("Windows requires a native host and --compiler.")
+        if host != "Windows" or arch != host_arch:
+            parser.error("Windows SDKs must be built on the target architecture.")
+        if not args.compiler:
+            parser.error("Windows LLVM-MinGW builds require --compiler.")
         args.compiler = args.compiler.resolve()
     elif host != {"linux": "Linux", "macos": "Darwin"}[args.target] or arch != host_arch:
         parser.error("Linux and macOS SDKs must be built on the target OS and architecture.")
@@ -367,12 +380,21 @@ def main():
     source, ocv = prepare(work, downloads, args.target, profile, args.compiler)
     bazel = [args.bazel.resolve(), f"--output_user_root={out / 'bazel'}"]
     flags = build_flags(args.target, arch)
+    targets = ["//qigao_sdk:native"]
+    if args.shared:
+        targets.append("//mediapipe/tasks/c:libmediapipe")
+        if args.target == "windows":
+            flags += ["--per_file_copt=mediapipe/tasks/c/.*[.]cc$@-DMP_EXPORT=__declspec(dllexport)",
+                      "--linkopt=-static"]
+        if args.target == "android":
+            flags += ["--linkopt=-Wl,-z,max-page-size=16384",
+                      "--linkopt=-Wl,-z,common-page-size=16384"]
     cache_flags = [f"--disk_cache={out / 'disk-cache'}",
                    f"--repository_cache={out / 'repository-cache'}",
                    f"--distdir={downloads}"]
     subprocess.run([
         *bazel, "build", "-c", "opt", f"--jobs={args.jobs}", "--output_filter=^$",
-        *cache_flags, *flags, "//qigao_sdk:native",
+        *cache_flags, *flags, *targets,
     ], cwd=source, check=True)
     if args.target == "windows":
         subprocess.run([
@@ -395,6 +417,16 @@ def main():
     archive = out / f"mediapipe-tasks-{MEDIAPIPE_VERSION}-{profile}.tar.gz"
     subprocess.run(["tar", "-czf", archive, "-C", prefix, "."], check=True)
     print(archive)
+    if args.shared:
+        suffix = {"windows": "dll", "macos": "dylib"}.get(args.target, "so")
+        library = out / "bin" / f"libmediapipe.{suffix}"
+        library.parent.mkdir(exist_ok=True)
+        shutil.copyfile(Path(info["bazel-bin"]) / "mediapipe/tasks/c" / library.name, library)
+        command = [sys.executable, "-B", SDK / "check_tasks_library.py", library]
+        if args.target == "android":
+            command += ["--android", args.arch, ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"]
+        subprocess.run(command, check=True)
+        print(library)
 
 
 if __name__ == "__main__":

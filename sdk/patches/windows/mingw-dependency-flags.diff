@@ -1,0 +1,139 @@
+diff --git a/WORKSPACE b/WORKSPACE
+--- a/WORKSPACE
++++ b/WORKSPACE
+@@ -285,6 +291,7 @@
+         "@//third_party:org_tensorflow_combine_cc_tests_link_extra_lib.diff",
+         # Works around b/564636414
+         "@//third_party:org_tensorflow_xla_llvm_url.diff",
++        "@//third_party:tensorflow_mingw.diff",
+     ],
+     sha256 = _TENSORFLOW_SHA256,
+     strip_prefix = "tensorflow-%s" % _TENSORFLOW_GIT_COMMIT,
+@@ -872,7 +879,8 @@
+         "@//third_party:litert_rules_python_and_strict_deps.diff",
+         "@//third_party:litert_custom_ops.diff",
+         "@//third_party:litert_internal_fbs_fix.diff",
++        "@//third_party:litert_mingw.diff",
+         "@//third_party:litert_dispatch_windows.diff",
+     ],
+     sha256 = "ec32db733e93501c693a8ab99e413c2d5d746dee7d452a8d6912046d7bc5c04e",
+     strip_prefix = "LiteRT-2.3.0",
+diff --git a/third_party/litert_mingw.diff b/third_party/litert_mingw.diff
+new file mode 100644
+--- /dev/null
++++ b/third_party/litert_mingw.diff
+@@ -0,0 +1,84 @@
++diff --git a/tflite/build_def.bzl b/tflite/build_def.bzl
++--- a/tflite/build_def.bzl
+++++ b/tflite/build_def.bzl
++@@ -60,13 +60,8 @@
++         ],
++         clean_dep("@org_tensorflow//tensorflow:linux_x86_64_no_sse"): [],
++         clean_dep("@org_tensorflow//tensorflow:windows"): [
++-            # copybara:uncomment_begin(no MSVC flags in google)
++-            # "-DTFL_COMPILE_LIBRARY",
++-            # "-Wno-sign-compare",
++-            # copybara:uncomment_end_and_comment_begin
++-            "/DTFL_COMPILE_LIBRARY",
++-            "/wd4018",  # -Wno-sign-compare
++-            # copybara:comment_end
+++            "-DTFL_COMPILE_LIBRARY",
+++            "-Wno-sign-compare",
++         ],
++         "//conditions:default": [
++             "-Wno-sign-compare",
++diff --git a/tflite/kernels/BUILD b/tflite/kernels/BUILD
++--- a/tflite/kernels/BUILD
+++++ b/tflite/kernels/BUILD
++@@ -61,8 +61,8 @@
++         # "-DEIGEN_HAS_C99_MATH",
++         # "-DEIGEN_AVOID_STL_ARRAY",
++         # copybara:uncomment_end_and_comment_begin
++-        "/DEIGEN_HAS_C99_MATH",
++-        "/DEIGEN_AVOID_STL_ARRAY",
+++        "-DEIGEN_HAS_C99_MATH",
+++        "-DEIGEN_AVOID_STL_ARRAY",
++         # copybara:comment_end
++     ],
++     "//conditions:default": ["-Wno-error=reorder"],
++diff --git a/tflite/converter/build_def.bzl b/tflite/converter/build_def.bzl
++--- a/tflite/converter/build_def.bzl
+++++ b/tflite/converter/build_def.bzl
++@@ -39,13 +39,8 @@
++         ],
++         clean_dep("@org_tensorflow//tensorflow:linux_x86_64_no_sse"): [],
++         clean_dep("@org_tensorflow//tensorflow:windows"): [
++-            # copybara:uncomment_begin(no MSVC flags in google)
++-            # "-DTFL_COMPILE_LIBRARY",
++-            # "-Wno-sign-compare",
++-            # copybara:uncomment_end_and_comment_begin
++-            "/DTFL_COMPILE_LIBRARY",
++-            "/wd4018",  # -Wno-sign-compare
++-            # copybara:comment_end
+++            "-DTFL_COMPILE_LIBRARY",
+++            "-Wno-sign-compare",
++         ],
++         "//conditions:default": [
++             "-Wno-sign-compare",
++diff --git a/tflite/delegates/xnnpack/windows_util.cc b/tflite/delegates/xnnpack/windows_util.cc
++--- a/tflite/delegates/xnnpack/windows_util.cc
+++++ b/tflite/delegates/xnnpack/windows_util.cc
++@@ -14,7 +14,7 @@
++ ==============================================================================*/
++ #include "tflite/delegates/xnnpack/windows_util.h"
++ 
++-#if defined(_MSC_VER)
+++#if defined(_WIN32)
++ 
++ #include <windows.h>
++ 
++diff --git a/tflite/delegates/xnnpack/windows_util.h b/tflite/delegates/xnnpack/windows_util.h
++--- a/tflite/delegates/xnnpack/windows_util.h
+++++ b/tflite/delegates/xnnpack/windows_util.h
++@@ -19,7 +19,7 @@
++  * want to remove it...*/
++ // IWYU pragma: always_keep
++ 
++-#if defined(_MSC_VER)
+++#if defined(_WIN32)
++ 
++ #include <string>
++ 
++@@ -31,6 +31,6 @@
++ 
++ };  // namespace tflite::xnnpack
++ 
++-#endif  // defined(_MSC_VER)
+++#endif  // defined(_WIN32)
++ 
++ #endif  // TENSORFLOW_LITE_DELEGATES_XNNPACK_WINDOWS_UTIL_H_
+diff --git a/third_party/tensorflow_mingw.diff b/third_party/tensorflow_mingw.diff
+new file mode 100644
+--- /dev/null
++++ b/third_party/tensorflow_mingw.diff
+@@ -0,0 +1,25 @@
++diff --git a/third_party/icu/icu.BUILD b/third_party/icu/icu.BUILD
++--- a/third_party/icu/icu.BUILD
+++++ b/third_party/icu/icu.BUILD
++@@ -56,8 +56,7 @@
++             "-Wno-unused-variable",
++         ],
++         ":windows": [
++-            "/utf-8",
++-            "/DLOCALE_ALLOW_NEUTRAL_NAMES=0",
+++            "-DLOCALE_ALLOW_NEUTRAL_NAMES=0",
++         ],
++         "//conditions:default": [],
++     }),
++diff --git a/third_party/xla/third_party/farmhash/farmhash.BUILD b/third_party/xla/third_party/farmhash/farmhash.BUILD
++--- a/third_party/xla/third_party/farmhash/farmhash.BUILD
+++++ b/third_party/xla/third_party/farmhash/farmhash.BUILD
++@@ -24,7 +24,7 @@
++     # Disable __builtin_expect support on Windows
++     copts = select({
++         ":windows_x86_64_clang": ["-DFARMHASH_OPTIONAL_BUILTIN_EXPECT"],
++-        ":windows": ["/DFARMHASH_OPTIONAL_BUILTIN_EXPECT"],
+++        ":windows": ["-DFARMHASH_OPTIONAL_BUILTIN_EXPECT"],
++         "//conditions:default": [],
++     }),
++     includes = ["src/."],

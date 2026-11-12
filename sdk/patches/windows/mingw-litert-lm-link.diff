@@ -1,0 +1,66 @@
+--- a/WORKSPACE
++++ b/WORKSPACE
+@@ -899,6 +899,7 @@
+     patch_tool = "patch",
+     patches = [
+         "@//third_party:litert_lm.diff",
++        "@//third_party:litert_lm_mingw_link.diff",
+     ],
+     repo_mapping = {
+         "@minizip": "@zlib",
+--- /dev/null
++++ b/third_party/litert_lm_mingw_link.diff
+@@ -0,0 +1,53 @@
++--- a/runtime/components/BUILD
+++++ b/runtime/components/BUILD
++@@ -378,7 +378,7 @@
++     }),
++     hdrs = ["prompt_template.h"],
++     linkopts = select({
++-        "@platforms//os:windows": ["ntdll.lib"],
+++        "@platforms//os:windows": ["-lntdll"],
++         "//conditions:default": [],
++     }),
++     deps = [
++--- a/runtime/components/tool_use/BUILD
+++++ b/runtime/components/tool_use/BUILD
++@@ -82,7 +82,7 @@
++     srcs = ["parser_common.cc"],
++     hdrs = ["parser_common.h"],
++     linkopts = select({
++-        "@platforms//os:windows": ["ntdll.lib"],
+++        "@platforms//os:windows": ["-lntdll"],
++         "//conditions:default": [],
++     }),
++     deps = [
++--- a/runtime/components/constrained_decoding/BUILD
+++++ b/runtime/components/constrained_decoding/BUILD
++@@ -304,7 +304,7 @@
++     srcs = ["llg_constraint.cc"],
++     hdrs = ["llg_constraint.h"],
++     linkopts = select({
++-        "@platforms//os:windows": ["ntdll.lib"],
+++        "@platforms//os:windows": ["-lntdll"],
++         "//conditions:default": [],
++     }),
++     deps = [
++@@ -331,7 +331,7 @@
++     srcs = ["llg_constraint_provider.cc"],
++     hdrs = ["llg_constraint_provider.h"],
++     linkopts = select({
++-        "@platforms//os:windows": ["ntdll.lib"],
+++        "@platforms//os:windows": ["-lntdll"],
++         "//conditions:default": [],
++     }),
++     deps = [
++--- a/third_party/tokenizers_cpp/tokenizers_cpp.BUILD
+++++ b/third_party/tokenizers_cpp/tokenizers_cpp.BUILD
++@@ -27,7 +27,7 @@
++         ":huggingface_tokenizer_impl",
++     ],
++     linkopts = select({
++-        "@platforms//os:windows": ["kernel32.lib", "ntdll.lib"],
+++        "@platforms//os:windows": ["-lkernel32", "-lntdll"],
++         "//conditions:default": [],
++     }),
++ )
