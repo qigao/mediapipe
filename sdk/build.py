@@ -19,7 +19,6 @@ MEDIAPIPE_SHA = "5cb3de36eff44d36fbd535d3f2d485f3ec7f020b703ed128e9cac2b22046b39
 SALTS_BASE_VERSION = "0.1.3"
 SALTS_BASE_SHA = "d4521665c7226721b51f8a0febec6721bb1a53e81761799f5d3a864f5c7ab97b"
 OCV_VERSION = "0.1.0"
-OCV_MSVC_VERSION = "0.1.1"
 OCV_SHA = {
     "linux-x64": "01fe644d9869c2ed2f79e6078f8fbaece6725d2175bbf2806a62d689d34f8237",
     "linux-arm64": "16ced3247662a09c0f1fa10832d6dc43fb68639d37fd09b13512cb1fc41b077d",
@@ -60,13 +59,6 @@ def verify(path, checksum, digest):
 
 def fetch_opencv(downloads, profile):
     filename = f"opencv-4.11.0-static-{profile}.tar.gz"
-    if profile.endswith("-msvc"):
-        release = f"https://github.com/qigao/ocv/releases/download/v{OCV_MSVC_VERSION}"
-        sums = subprocess.check_output(["curl", "-fsSL", "--retry", "3", f"{release}/SHA256SUMS"], text=True)
-        match = re.search(rf"^([0-9a-f]{{64}}) [ *]{re.escape(filename)}$", sums, re.MULTILINE)
-        if not match:
-            raise ValueError(f"OpenCV SDK v{OCV_MSVC_VERSION} is missing the checksum for {filename}")
-        return fetch(downloads, f"{release}/{filename}", match[1], f"ocv-v{OCV_MSVC_VERSION}-{filename}")
     release = f"https://github.com/qigao/ocv/releases/download/v{OCV_VERSION}"
     return fetch(downloads, f"{release}/{filename}", OCV_SHA[profile])
 
@@ -78,21 +70,19 @@ def apply_source_patch(source, patch, ceiling):
                    env=os.environ | {"GIT_CEILING_DIRECTORIES": str(ceiling)})
 
 
-def prepare(work, downloads, target, profile, compiler=None, opencv_archive=None):
+def prepare(work, downloads, target, profile, compiler=None):
     source = work / "mediapipe"
     ocv = work / "ocv"
-    msvc = profile.endswith("-msvc")
     source.mkdir(parents=True)
     (ocv / "bazel").mkdir(parents=True)
     upstream = fetch(
         downloads, f"https://codeload.github.com/google-ai-edge/mediapipe/tar.gz/{MEDIAPIPE_COMMIT}",
         MEDIAPIPE_SHA,
     )
-    opencv = opencv_archive or fetch_opencv(downloads, profile)
+    opencv = fetch_opencv(downloads, profile)
     subprocess.run(["tar", "-xzf", upstream, "--strip-components=1", "-C", source], check=True)
     subprocess.run(["tar", "-xzf", opencv, "-C", ocv / "bazel"], check=True)
     (ocv / "WORKSPACE").write_text('workspace(name = "qigao_ocv")\n', encoding="utf-8")
-    (ocv / "bazel/toolchain.bzl").write_text(f"MSVC = {msvc}\n", encoding="utf-8")
     shutil.copyfile(SDK / "ocv.BUILD", ocv / "bazel/BUILD.bazel")
     workspace = source / "WORKSPACE"
     with workspace.open("a", encoding="utf-8") as stream:
@@ -117,11 +107,8 @@ def prepare(work, downloads, target, profile, compiler=None, opencv_archive=None
         apply_source_patch(source, patch, work)
     if target == "windows":
         apply_source_patch(source, SDK / "patches/windows/audio-tools-glog.diff", work)
-        if msvc:
-            apply_source_patch(source, SDK / "patches/windows/msvc-dependencies.diff", work)
-        else:
-            for patch in ("mingw-dependency-flags.diff", "mingw-pffft.diff", "mingw-litert-lm-link.diff"):
-                apply_source_patch(source, SDK / "patches/windows" / patch, work)
+        for patch in ("mingw-dependency-flags.diff", "mingw-pffft.diff", "mingw-litert-lm-link.diff"):
+            apply_source_patch(source, SDK / "patches/windows" / patch, work)
     package = source / "qigao_sdk"
     package.mkdir()
     for name in ("BUILD.bazel", "export.bzl"):
@@ -140,10 +127,9 @@ def prepare(work, downloads, target, profile, compiler=None, opencv_archive=None
                 '    patch_strip = 1,\n'
                 ')\n'
             )
-        if not msvc:
-            shutil.copytree(SDK / "toolchains", package / "toolchains")
-            config = package / "toolchains/compiler.bzl"
-            config.write_text(f'COMPILER_ROOT = {json.dumps(compiler.as_posix())}\n')
+        shutil.copytree(SDK / "toolchains", package / "toolchains")
+        config = package / "toolchains/compiler.bzl"
+        config.write_text(f'COMPILER_ROOT = {json.dumps(compiler.as_posix())}\n')
     return source, ocv
 
 
@@ -157,7 +143,7 @@ def copy_paths(artifact_source, paths, dest):
         shutil.copyfile(artifact_source(path), target)
 
 
-def cmake_link_flags(flags, target, msvc=False):
+def cmake_link_flags(flags, target):
     result = []
     flags = iter(flags)
     for flag in flags:
@@ -168,11 +154,7 @@ def cmake_link_flags(flags, target, msvc=False):
         if target == "macos" and framework:
             result.append(f"-Wl,{framework[1]},{framework[2]}")
         elif target == "windows" and default_library:
-            result.append(f"{default_library[1]}.lib" if msvc else f"-l{default_library[1]}")
-        elif msvc and re.fullmatch(r"-l[A-Za-z0-9_.+-]+", flag):
-            result.append(f"{flag[2:]}.lib")
-        elif msvc and re.fullmatch(r"[A-Za-z0-9_.+-]+\.lib", flag, re.IGNORECASE):
-            result.append(flag)
+            result.append(f"-l{default_library[1]}")
         elif re.fullmatch(r"(-l[A-Za-z0-9_+:.-]+|-pthread|-Wl,[A-Za-z0-9_+=:,.\-]+)", flag):
             result.append(flag)
         elif target == "macos" and flag in {"-ObjC", "-fobjc-link-runtime"}:
@@ -183,7 +165,6 @@ def cmake_link_flags(flags, target, msvc=False):
 
 
 def write_cmake(manifest, prefix, target, profile):
-    msvc = profile.endswith("-msvc")
     lines = [
         'get_filename_component(_mp_root "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)',
         "if(TARGET MediaPipe::Tasks)",
@@ -200,13 +181,6 @@ def write_cmake(manifest, prefix, target, profile):
         lines.append(f'set(MediaPipe_MACOS_MINIMUM "{MACOS_MINIMUM}")')
     if target == "windows":
         lines.append('set(MediaPipe_CPU_DELEGATE "xnnpack")')
-    if msvc:
-        lines.extend([
-            'if(NOT MSVC)',
-            '  message(FATAL_ERROR "This MediaPipe SDK requires the MSVC C++ ABI")',
-            'endif()',
-            'set(MediaPipe_MSVC_RUNTIME "MultiThreadedDLL")',
-        ])
     definitions = list(manifest["defines"])
     if target == "linux":
         definitions.extend(LINUX_DEFINES)
@@ -214,24 +188,23 @@ def write_cmake(manifest, prefix, target, profile):
         definitions.append("MEDIAPIPE_DISABLE_GPU=1")
     lines.append("target_compile_definitions(MediaPipe::Tasks INTERFACE " +
                  " ".join(json.dumps(value) for value in dict.fromkeys(definitions)) + ")")
-    include_dirs = manifest["includes"] + (manifest["quote_includes"] if msvc else [])
-    for paths, system in ((include_dirs, ""), (manifest["system_includes"], " SYSTEM")):
+    for paths, system in ((manifest["includes"], ""), (manifest["system_includes"], " SYSTEM")):
         includes = [f'"${{_mp_root}}/include/{path}"' for path in dict.fromkeys(paths)]
         if includes:
             lines.append(f"target_include_directories(MediaPipe::Tasks{system} INTERFACE " +
                          " ".join(includes) + ")")
-    for path in ([] if msvc else manifest["quote_includes"]):
+    for path in manifest["quote_includes"]:
         lines.append(f'target_compile_options(MediaPipe::Tasks INTERFACE '
                      f'"SHELL:-iquote \\"${{_mp_root}}/include/{path}\\"")')
     libraries = []
     for path, alwayslink in manifest["libraries"]:
         archive = f"${{_mp_root}}/lib/archives/{path}"
         libraries.append(f"$<LINK_LIBRARY:WHOLE_ARCHIVE,{archive}>" if alwayslink else archive)
-    if target == "macos" or msvc:
+    if target == "macos":
         link = [json.dumps(library) for library in libraries]
     else:
         link = ['"$<LINK_GROUP:RESCAN,' + ",".join(libraries) + '>"']
-    link.extend(cmake_link_flags(manifest["link_flags"], target, msvc))
+    link.extend(cmake_link_flags(manifest["link_flags"], target))
     if target == "macos":
         link.append("-lobjc")
     lines.append("target_link_libraries(MediaPipe::Tasks INTERFACE\n  " +
@@ -279,7 +252,7 @@ def stage(output_base, output_path, manifest, prefix, source, ocv, target, profi
     metadata = {
         "mediapipe_version": MEDIAPIPE_VERSION,
         "mediapipe_commit": MEDIAPIPE_COMMIT,
-        "opencv_sdk_version": OCV_MSVC_VERSION if profile.endswith("-msvc") else OCV_VERSION,
+        "opencv_sdk_version": OCV_VERSION,
         "platform": profile,
         "gpu": target != "windows",
         "gpu_backend": {"macos": "metal", "windows": None}.get(target, "egl-opengles"),
@@ -291,7 +264,7 @@ def stage(output_base, output_path, manifest, prefix, source, ocv, target, profi
     if target == "windows":
         metadata["cpu_delegate"] = "xnnpack"
         metadata["salts_threads_version"] = SALTS_BASE_VERSION
-        metadata["windows_toolchain"] = "msvc" if profile.endswith("-msvc") else "llvm-mingw"
+        metadata["windows_toolchain"] = "llvm-mingw"
     (prefix / "manifest.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     notices = prefix / "licenses"
     notices.mkdir()
@@ -311,14 +284,13 @@ def stage(output_base, output_path, manifest, prefix, source, ocv, target, profi
                 shutil.copyfile(entry, target)
 
 
-def build_flags(target, arch, msvc=False):
-    cxx_standard = "/std:c++20" if msvc else "-std=c++20"
+def build_flags(target, arch):
     flags = [
         "--repo_env=DO_NOT_TRACK=1",
         "--repo_env=HERMETIC_PYTHON_VERSION=3.12",
         "--action_env=PYTHONHASHSEED=0",
-        f"--cxxopt={cxx_standard}",
-        f"--host_cxxopt={cxx_standard}",
+        "--cxxopt=-std=c++20",
+        "--host_cxxopt=-std=c++20",
     ]
     if target != "windows":
         flags.append("--copt=-fPIC")
@@ -348,41 +320,15 @@ def build_flags(target, arch, msvc=False):
             "--define=xnn_enable_avx512fp16=false",
             "--define=xnn_enable_avx512amx=false",
         ]
-        if msvc:
-            flags += [
-                f"--platforms=//qigao_sdk/windows:windows_{arch}",
-                f"--extra_toolchains=@local_config_cc//:cc-toolchain-{cpu}",
-                "--compiler=msvc-cl",
-                "--define=protobuf_allow_msvc=true",
-                "--per_file_copt=farmhash[.]cc$@/DFARMHASH_NO_BUILTIN_EXPECT",
-                "--conlyopt=/std:c11",
-                "--conlyopt=/experimental:c11atomics",
-                "--copt=/Zc:preprocessor",
-                "--host_copt=/Zc:preprocessor",
-                "--cxxopt=/Zc:__cplusplus",
-                "--host_cxxopt=/Zc:__cplusplus",
-                "--copt=/DNOMINMAX",
-                "--host_copt=/DNOMINMAX",
-                "--copt=/D_USE_MATH_DEFINES",
-                "--host_copt=/D_USE_MATH_DEFINES",
-                "--copt=/utf-8",
-                "--host_copt=/utf-8",
-                "--copt=/bigobj",
-                "--host_copt=/bigobj",
-                "--features=-static_link_msvcrt",
-            ]
-            if arch == "arm64":
-                flags += ["--define=xnn_enable_arm_bf16=false", "--define=xnn_enable_arm_i8mm=false"]
-        else:
-            flags += [
-                f"--platforms=//qigao_sdk/toolchains:windows_{arch}",
-                "--extra_toolchains=//qigao_sdk/toolchains:toolchain_x64,//qigao_sdk/toolchains:toolchain_arm64",
-                "--compiler=mingw-gcc",
-                "--copt=-DNOMINMAX",
-                "--host_copt=-DNOMINMAX",
-                "--copt=-D_USE_MATH_DEFINES",
-                "--host_copt=-D_USE_MATH_DEFINES",
-            ]
+        flags += [
+            f"--platforms=//qigao_sdk/toolchains:windows_{arch}",
+            "--extra_toolchains=//qigao_sdk/toolchains:toolchain_x64,//qigao_sdk/toolchains:toolchain_arm64",
+            "--compiler=mingw-gcc",
+            "--copt=-DNOMINMAX",
+            "--host_copt=-DNOMINMAX",
+            "--copt=-D_USE_MATH_DEFINES",
+            "--host_copt=-D_USE_MATH_DEFINES",
+        ]
     else:
         cpu = {"arm64": "darwin_arm64", "x64": "darwin_x86_64"}[arch]
         flags += [f"--cpu={cpu}", f"--macos_minimum_os={MACOS_MINIMUM}"]
@@ -396,19 +342,11 @@ def main():
     parser.add_argument("--target", choices=["linux", "android", "macos", "windows"], default="linux")
     parser.add_argument("--arch", choices=["x64", "arm64"])
     parser.add_argument("--bazel", required=True, type=Path)
-    parser.add_argument("--bazel-root", type=Path, help="Bazel output user root")
     parser.add_argument("--out", default=Path("build-sdk"), type=Path)
     parser.add_argument("--jobs", default=4, type=int)
     parser.add_argument("--compiler", type=Path, help="LLVM-MinGW installation for Windows")
-    parser.add_argument("--windows-toolchain", choices=["llvm-mingw", "msvc"], default="llvm-mingw")
-    parser.add_argument("--opencv-archive", type=Path, help="Matching OpenCV MSVC SDK archive")
     parser.add_argument("--shared", action="store_true", help="Also build the Tasks C shared library")
     args = parser.parse_args()
-    msvc = args.windows_toolchain == "msvc"
-    if msvc and (args.target != "windows" or args.compiler):
-        parser.error("MSVC requires --target windows")
-    if not msvc and args.opencv_archive:
-        parser.error("--opencv-archive requires --windows-toolchain msvc")
     host_arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower())
     arch = args.arch or host_arch
     host = platform.system()
@@ -425,33 +363,27 @@ def main():
     elif args.target == "windows":
         if host != "Windows" or arch != host_arch:
             parser.error("Windows SDKs must be built on the target architecture.")
-        if not msvc and not args.compiler:
+        if not args.compiler:
             parser.error("Windows LLVM-MinGW builds require --compiler.")
-        if args.compiler:
-            args.compiler = args.compiler.resolve()
+        args.compiler = args.compiler.resolve()
     elif host != {"linux": "Linux", "macos": "Darwin"}[args.target] or arch != host_arch:
         parser.error("Linux and macOS SDKs must be built on the target OS and architecture.")
     if arch not in {"x64", "arm64"}:
         parser.error("The SDK requires an x64 or ARM64 target.")
     profile = f"{args.target}-{arch}"
-    if msvc:
-        profile += "-msvc"
-    if args.opencv_archive:
-        args.opencv_archive = args.opencv_archive.resolve()
     out = args.out.resolve()
     work = out / "source"
     downloads = out / "downloads"
     downloads.mkdir(parents=True, exist_ok=True)
     if work.exists():
         shutil.rmtree(work)
-    source, ocv = prepare(work, downloads, args.target, profile, args.compiler, args.opencv_archive)
-    bazel_root = args.bazel_root.resolve() if args.bazel_root else out / "bazel"
-    bazel = [args.bazel.resolve(), f"--output_user_root={bazel_root}"]
-    flags = build_flags(args.target, arch, msvc)
+    source, ocv = prepare(work, downloads, args.target, profile, args.compiler)
+    bazel = [args.bazel.resolve(), f"--output_user_root={out / 'bazel'}"]
+    flags = build_flags(args.target, arch)
     targets = ["//qigao_sdk:native"]
     if args.shared:
         targets.append("//mediapipe/tasks/c:libmediapipe")
-        if args.target == "windows" and not msvc:
+        if args.target == "windows":
             flags += ["--per_file_copt=mediapipe/tasks/c/.*[.]cc$@-DMP_EXPORT=__declspec(dllexport)",
                       "--linkopt=-static"]
         if args.target == "android":
